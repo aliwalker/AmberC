@@ -83,6 +83,7 @@ immutable wstring[] operators = [
     "^"w,
     "&"w,
     "|"w,
+    "="w,
 
     // Multiple chars.
     "++"w,
@@ -188,7 +189,7 @@ struct Token
         case CHAR:      return format("charactor: %s", charVal);
         case STRING:    return format("string: %s", stringVal);
         case SEP:       return format("separator: %s", stringVal);
-        case INT:       return format("integer: %s", stringVal);
+        case INT:       return format("integer: %s", intVal);
         case FLOAT:     return format("floating point: %s", stringVal);
         default:        return "token";
         }
@@ -323,7 +324,8 @@ unittest {
     assert(chars.match(" 1923;"));
     assert(chars.read() == '\0');
 
-    //
+    auto error = new LexingError("bad lexing", "dummy.c", SrcPos(10, 10));
+    assert(error.toString() == "dummy.c:10:10: error: bad lexing");
 }
 
 /// Bookkeeping information for lexing errors.
@@ -707,4 +709,80 @@ LexingResult lexStream(ref CharStream chars)
     }
 
     return LexingResult(tokens.data, errors);
+}
+
+/// Test lexStream.
+unittest {
+    auto chars = CharStream("int dumb = 100;\ndumb += 10;", "dummy.c");
+    auto lexingRes = lexStream(chars);
+
+    assert(lexingRes.errors.empty);
+    assert(!lexingRes.tokens.empty);
+
+    auto tokens = lexingRes.tokens;
+    auto expectedToks = [
+        Token(Token.KW, "int"w, SrcPos()),
+        Token(Token.IDENT, "dumb"w, SrcPos()),
+        Token(Token.SEP, "="w, SrcPos()),
+        Token(Token.INT, 100L, SrcPos()),
+        Token(Token.SEP, ";"w, SrcPos()),
+        Token(Token.IDENT, "dumb"w, SrcPos()),
+        Token(Token.SEP, "+="w, SrcPos()),
+        Token(Token.INT, 10L, SrcPos()),
+        Token(Token.SEP, ";"w, SrcPos()),
+        Token(SrcPos()),
+    ];
+
+    void compareTokens(Token[] expectedToks, Token[] tokens)
+    {
+        assert(expectedToks.length == tokens.length);
+        foreach (i, ref tok; tokens)
+        {
+            auto etok = &expectedToks[i];
+            assert(etok.kind == tok.kind, format("expected %sth token to be of the same type", i));
+
+            switch (tok.kind)
+            {
+            case Token.INT: 
+                assert(
+                    etok.intVal == tok.intVal,
+                    format("expected %s to equal %s", tok.intVal, etok.intVal)
+                );
+                break;
+            
+            case Token.SEP, Token.STRING, Token.KW:
+                assert(
+                    etok.stringVal == tok.stringVal,
+                    format("expected %s to equal %s", tok.stringVal, etok.stringVal)
+                );
+                break;
+
+            case Token.CHAR:
+                assert(
+                    etok.charVal == tok.charVal,
+                    format("expected %s to equal %s", tok.charVal, etok.charVal)
+                );
+                break;
+
+            default:
+            }
+        }
+    }
+
+    compareTokens(expectedToks, tokens);
+
+    chars = CharStream("double a = 10.0;", "dummy.c");
+    lexingRes = lexStream(chars);
+    assert(lexingRes.errors.empty);
+    assert(!lexingRes.tokens.empty);
+
+    expectedToks = [
+        Token(Token.KW, "double", SrcPos()),
+        Token(Token.IDENT, "a", SrcPos()),
+        Token(Token.SEP, "=", SrcPos()),
+        Token(Token.FLOAT, 10.0, SrcPos()),
+        Token(Token.SEP, ";", SrcPos()),
+        Token(SrcPos()),
+    ];
+    compareTokens(expectedToks, lexingRes.tokens);
 }
