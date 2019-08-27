@@ -674,24 +674,12 @@ LexingResult lexStream(ref CharStream chars)
                 }
             }
 
-            // KW
-            if (matched)
-            {
-                tokens.put(Token(
-                    Token.KW,
-                    name,
-                    pos
-                ));
-            }
-            // IDENT.
-            else
-            {
-                tokens.put(Token(
-                    Token.IDENT,
-                    name,
-                    pos
-                ));
-            }
+            auto kind = matched ? Token.KW : Token.IDENT;
+            tokens.put(Token(
+                kind,
+                name,
+                pos
+            ));
         }
 
         // Seperators or operators.
