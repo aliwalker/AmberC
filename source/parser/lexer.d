@@ -610,11 +610,22 @@ LexingResult lexStream(ref CharStream chars)
             // TODO: read escape char.
             chars.read();
             auto val = chars.read();
-            tokens.put(Token(
-                Token.CHAR,
-                val,
-                pos
-            ));
+            ch = chars.read();
+
+            if (ch == '\'')
+            {
+                tokens.put(Token(
+                    Token.CHAR,
+                    val,
+                    pos
+                ));
+            }
+            // Error
+            else
+            {
+                handleError("invalid character literal", pos);
+                break;
+            }
         }
 
         // String literal.
@@ -640,6 +651,7 @@ LexingResult lexStream(ref CharStream chars)
                     handleError("newline in string literal", pos);
                     break;
                 }
+                str ~= ch;
             }
 
             if (error is null)
@@ -701,25 +713,6 @@ LexingResult lexStream(ref CharStream chars)
 
 /// Test lexStream.
 unittest {
-    auto chars = CharStream("int dumb = 100;\ndumb += 10;", "dummy.c");
-    auto lexingRes = lexStream(chars);
-
-    assert(lexingRes.errors.empty);
-    assert(!lexingRes.tokens.empty);
-
-    auto tokens = lexingRes.tokens;
-    auto expectedToks = [
-        Token(Token.KW, "int"w, SrcPos()),
-        Token(Token.IDENT, "dumb"w, SrcPos()),
-        Token(Token.SEP, "="w, SrcPos()),
-        Token(Token.INT, 100L, SrcPos()),
-        Token(Token.SEP, ";"w, SrcPos()),
-        Token(Token.IDENT, "dumb"w, SrcPos()),
-        Token(Token.SEP, "+="w, SrcPos()),
-        Token(Token.INT, 10L, SrcPos()),
-        Token(Token.SEP, ";"w, SrcPos()),
-        Token(SrcPos()),
-    ];
 
     void compareTokens(Token[] expectedToks, Token[] tokens)
     {
@@ -757,20 +750,76 @@ unittest {
         }
     }
 
-    compareTokens(expectedToks, tokens);
+    void testValidCode(wstring code, Token[] expectedToks)
+    {
+        auto chars = CharStream(code, "dummy.c");
+        auto lexingRes = lexStream(chars);
 
-    chars = CharStream("double a = 10.0;", "dummy.c");
-    lexingRes = lexStream(chars);
-    assert(lexingRes.errors.empty);
-    assert(!lexingRes.tokens.empty);
+        assert(lexingRes.errors.empty);
+        assert(!lexingRes.tokens.empty);
 
-    expectedToks = [
-        Token(Token.KW, "double", SrcPos()),
-        Token(Token.IDENT, "a", SrcPos()),
-        Token(Token.SEP, "=", SrcPos()),
-        Token(Token.FLOAT, 10.0, SrcPos()),
-        Token(Token.SEP, ";", SrcPos()),
-        Token(SrcPos()),
-    ];
-    compareTokens(expectedToks, lexingRes.tokens);
+        compareTokens(expectedToks, lexingRes.tokens);
+    }
+
+    testValidCode(
+        "int dumb = 100;\ndumb += 10;",
+        [
+            Token(Token.KW, "int"w, SrcPos()),
+            Token(Token.IDENT, "dumb"w, SrcPos()),
+            Token(Token.SEP, "="w, SrcPos()),
+            Token(Token.INT, 100L, SrcPos()),
+            Token(Token.SEP, ";"w, SrcPos()),
+            Token(Token.IDENT, "dumb"w, SrcPos()),
+            Token(Token.SEP, "+="w, SrcPos()),
+            Token(Token.INT, 10L, SrcPos()),
+            Token(Token.SEP, ";"w, SrcPos()),
+            Token(SrcPos()),
+        ]
+    );
+
+    testValidCode(
+        "double a = 10.0;",
+        [
+            Token(Token.KW, "double", SrcPos()),
+            Token(Token.IDENT, "a", SrcPos()),
+            Token(Token.SEP, "=", SrcPos()),
+            Token(Token.FLOAT, 10.0, SrcPos()),
+            Token(Token.SEP, ";", SrcPos()),
+            Token(SrcPos()),
+        ]
+    );
+
+    // Hex.
+    testValidCode(
+        "0x10",
+        [
+            Token(Token.INT, 16L, SrcPos()),
+            Token(SrcPos())
+        ]
+    );
+
+    // Comments & whitespace.
+    testValidCode(
+        "/* some comments */\n//",
+        [
+            Token(SrcPos())
+        ]
+    );
+
+    // String literal
+    testValidCode(
+        "\"String\"",
+        [
+            Token(Token.STRING, "String", SrcPos()),
+            Token(SrcPos()),
+        ]
+    );
+
+    testValidCode(
+        "'c'",
+        [
+            Token(Token.CHAR, 'c', SrcPos()),
+            Token(SrcPos()),
+        ]
+    );
 }
