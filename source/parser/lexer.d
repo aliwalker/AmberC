@@ -509,7 +509,7 @@ LexingResult lexStream(ref CharStream chars)
         // Hex number.
         if (chars.match("0x"))
         {
-            enum hexRegex = ctRegex!(`^[0-9|a-z|A-Z]+`w);
+            enum hexRegex = ctRegex!(`^[0-9|a-f|A-F]+`w);
             auto m = chars.match(hexRegex);
 
             if (m.empty)
@@ -533,29 +533,25 @@ LexingResult lexStream(ref CharStream chars)
             enum octRegex = ctRegex!(`^0([0-7]+)`w);
             auto m = chars.match(octRegex);
 
+            long val = 0;
             // An actual octal number.
             if (!m.empty)
             {
                 auto octStr = m.captures[0];
-                long val;
-
                 formattedRead(octStr, "%o", &val);
-                tokens.put(Token(
-                    Token.INT,
-                    val,
-                    pos
-                ));
             }
-
             // Zero
             else
             {
-                tokens.put(Token(
-                    Token.INT,
-                    0,
-                    pos
-                ));
+                // Consume the char.
+                chars.read();
             }
+
+            tokens.put(Token(
+                Token.INT,
+                val,
+                pos
+            ));
         }
 
         // Decimal int or floating point number.
@@ -761,6 +757,18 @@ unittest {
         compareTokens(expectedToks, lexingRes.tokens);
     }
 
+    void testInvalidCode(wstring code, string expectedMsg)
+    {
+        auto chars = CharStream(code, "dummy.c");
+        auto lexingRes = lexStream(chars);
+
+        assert(!lexingRes.errors.empty);
+        // TODO:
+        // Change this when error recovery is added.
+        assert(lexingRes.errors[0].msg == expectedMsg);
+    }
+
+    // Two statements.
     testValidCode(
         "int dumb = 100;\ndumb += 10;",
         [
@@ -777,6 +785,7 @@ unittest {
         ]
     );
 
+    // Floating point.
     testValidCode(
         "double a = 10.0;",
         [
@@ -798,6 +807,26 @@ unittest {
         ]
     );
 
+    // Octal.
+    testValidCode(
+        "011",
+        [
+            Token(Token.INT, 9L, SrcPos()),
+            Token(SrcPos())
+        ]
+    );
+
+    // 0.
+    testValidCode(
+        "0; ident",
+        [
+            Token(Token.INT, 0L, SrcPos()),
+            Token(Token.SEP, ";"w, SrcPos()),
+            Token(Token.IDENT, "ident"w, SrcPos()),
+            Token(SrcPos()),
+        ]
+    );
+
     // Comments & whitespace.
     testValidCode(
         "/* some comments */\n//",
@@ -815,6 +844,7 @@ unittest {
         ]
     );
 
+    // Char literal.
     testValidCode(
         "'c'",
         [
@@ -822,4 +852,11 @@ unittest {
             Token(SrcPos()),
         ]
     );
+
+    // Invalid hex.
+    testInvalidCode(
+        "0xl",
+        "invalid hex number"
+    );
+
 }
