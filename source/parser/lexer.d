@@ -37,7 +37,7 @@ immutable wstring[] keywords = [
     "switch"w,
     "while"w,
 
-    // Specifiers.
+    // qualifiers.
     "auto"w,
     "extern"w,
     "const"w,
