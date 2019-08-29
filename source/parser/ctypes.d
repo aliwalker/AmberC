@@ -4,6 +4,7 @@
 module parser.ctypes;
 
 import std.array;
+import std.algorithm.searching;
 import parser.lexer;
 
 /// C type constructor. Used in AST.
@@ -147,31 +148,39 @@ class Type
         this.kind = kind;
         this.asStruct = StructInfo(
             types,
-            kind == UNION ? null : types.memberOffsets
+            types.memberOffsets(kind == UNION)
         );
+        
+        size_t max = !types.empty ? maxElement!"a.size"(types).size : 0;
+        this.size = max * types.length;
     }
 }
 
 /// Calculates the offsets of each member in a struct.
-size_t[] memberOffsets(Type[] types)
+size_t[] memberOffsets(Type[] types, bool isUnion)
 {
     auto offsets = appender!(size_t[]);
     offsets.reserve(10);
 
-    // Find the max member size.
-    size_t max = 0;
-    foreach (t; types)
+    // All member starts at offset 0 within a union.
+    if (isUnion)
     {
-        if (t.size > max)
-            max = t.size;
+        for (size_t i = 0; i < types.length; i++)
+            offsets.put(0);
+
+        return offsets.data;
     }
+
+    // Find the max member size.
+    size_t max = !types.empty ? maxElement!"a.size"(types).size : 0;
 
     // Assign offsets.
     size_t currOffset = 0;
     for (size_t i = 0; i < types.length;)
     {
         size_t acc = 0;
-        for (; acc + types[i].size < max; i++)
+        for (; (i < types.length) &&
+               (acc + types[i].size <= max); i++)
         {
             offsets.put(currOffset);
             currOffset += types[i].size;
@@ -188,22 +197,63 @@ size_t[] memberOffsets(Type[] types)
     return offsets.data;
 }
 
+// TODO: 
+Type voidType;
+Type boolType;
+Type charType;
+Type shortType;
+Type intType;
+Type longType;
+Type llongType;
+Type ucharType;
+Type ushortType;
+Type uintType;
+Type ulongType;
+Type ullongType;
+Type floatType;
+Type doubleType;
+Type enumType;
+
 /// Primitive types.
-const Type voidType = new Type();
-const Type boolType = new Type(Type.BOOL_, 1);
-const Type charType = new Type(Type.CHAR, 1);
-const Type shortType = new Type(Type.SHORT, 2);
-const Type intType = new Type(Type.INT, 4);
-const Type longType = new Type(Type.LONG, 8);
-const Type llongType = new Type(Type.LLONG, 8);
-const Type ucharType = new Type(Type.CHAR, 1, true);
-const Type ushortType = new Type(Type.SHORT, 2, true);
-const Type uintType = new Type(Type.INT, 4, true);
-const Type ulongType = new Type(Type.LONG, 8, true);
-const Type ullongType = new Type(Type.LLONG, 8, true);
-const Type floatType = new Type(Type.FLOAT, 4);
-const Type doubleType = new Type(Type.DOUBLE, 8);
-const Type enumType = new Type(Type.ENUM, 4);
+static this()
+{
+    voidType   = new Type();
+    boolType   = new Type(Type.BOOL_, 1);
+    charType   = new Type(Type.CHAR, 1);
+    shortType  = new Type(Type.SHORT, 2);
+    intType    = new Type(Type.INT, 4);
+    longType   = new Type(Type.LONG, 8);
+    llongType  = new Type(Type.LLONG, 8);
+    ucharType  = new Type(Type.CHAR, 1, true);
+    ushortType = new Type(Type.SHORT, 2, true);
+    uintType   = new Type(Type.INT, 4, true);
+    ulongType  = new Type(Type.LONG, 8, true);
+    ullongType = new Type(Type.LLONG, 8, true);
+    floatType  = new Type(Type.FLOAT, 4);
+    doubleType = new Type(Type.DOUBLE, 8);
+    enumType   = new Type(Type.ENUM, 4);
+}
 
 unittest {
+    Type fooStruct = new Type(Type.STRUCT, [boolType, intType]);
+    assert(fooStruct.kind == Type.STRUCT);
+    assert(fooStruct.size == 8);
+    assert(fooStruct.asStruct.types.length == 2);
+    assert(fooStruct.asStruct.types[0] == boolType);
+    assert(fooStruct.asStruct.types[1] == intType);
+    assert(fooStruct.asStruct.offsets[0] == 0);
+    assert(fooStruct.asStruct.offsets[1] == 4);
+
+    Type barUnion = new Type(Type.UNION, [shortType, longType]);
+    assert(barUnion.kind == Type.UNION);
+    assert(barUnion.asStruct.types.length == 2);
+    assert(barUnion.asStruct.types[0] == shortType);
+    assert(barUnion.asStruct.types[1] == longType);
+    assert(barUnion.asStruct.offsets[0] == 0);
+    assert(barUnion.asStruct.offsets[1] == 0);
+
+    Type funcT = new Type(Type.FUNC, voidType, [intType]);
+    assert(funcT.kind == Type.FUNC);
+    assert(funcT.asFunc.retType == voidType);
+    assert(funcT.asFunc.params[0] == intType);
 }
