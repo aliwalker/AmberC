@@ -15,7 +15,8 @@ import std.string;
 /// A list of C keywords.
 /// TODO: Some of those keywords are currently unsupported.
 immutable wstring[] keywords = [
-    // Primitive types.
+    // Type specifiers.
+    // 6.7.2
     "_Bool"w,
     "char"w,
     "double"w,
@@ -26,6 +27,8 @@ immutable wstring[] keywords = [
     "signed"w,
     "unsigned"w,
     "void"w,
+    "struct"w,
+    "union"w,
 
     // Control flow.
     "break"w,
@@ -37,14 +40,21 @@ immutable wstring[] keywords = [
     "switch"w,
     "while"w,
 
-    // qualifiers.
+    "sizeof"w,
+
+    // Type qualifiers
+    // 6.7.3
+    "const"w,
+    "restrict"w,
+    "volatile"w,
+    "inline"w,
+
+    // Storage-class specifiers.
+    // 6.7.1
     "auto"w,
     "extern"w,
-    "const"w,
+    "register"w,
     "static"w,
-    "struct"w,
-    "sizeof"w,
-    "union"w,
     "typedef"w,
 ];
 

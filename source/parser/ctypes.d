@@ -1,290 +1,209 @@
-///     This file contains C type constructors and primitive types.
+///     This file contains type information for C.
 ///     Copyright 2019 Yiyong Li.
 
 module parser.ctypes;
 
-import std.algorithm;
 import std.array;
-import std.conv;
-import std.format;
 import parser.lexer;
 
-/// Base type constructor.
+/// C type constructor. Used in AST.
 class Type
 {
-    /// Size of a variable of this type.
-    size_t size;
+    alias Kind = int;
 
-    /// Constructor.
-    this(size_t size = 0)
-    {
-        this.size = size;
+    /// Specifiers.
+    enum : Kind {
+        VOID,
+        BOOL_,
+        CHAR,
+        SHORT,
+        INT,
+        LONG,
+        LLONG,  // long long
+        FLOAT,
+        DOUBLE,
+        ARRAY,
+        ENUM,   // TODO.
+        PTR,
+        STRUCT,
+        UNION,
+        FUNC,
     }
 
-    /// Checks whether [other] is compatible.
-    bool compatWith(const Type) const
+    struct ArrayInfo
     {
-        return false;
+        /// Elem type.
+        Type type;
+        /// Array length.
+        size_t length;
     }
 
-    override string toString() const
+    struct FuncInfo
     {
-        return "Type";
-    }
-}
-
-/// Integer type constructor.
-class IntType : Type
-{
-    /// Whether signed or unsigned.
-    bool signed;
-
-    /// Special case for _Bool type.
-    bool isBool;
-
-    /// Constructor.
-    this(size_t size, bool signed = true)
-    {
-        super(size);
-        this.signed = signed;
+        /// Return type.
+        Type retType;
+        /// Types of params.
+        Type[] params;
     }
 
-    override string toString() const
+    /// Struct or union.
+    struct StructInfo
     {
-        auto repr = signed ? "Signed" : "Unsigned";
-        repr ~= " " ~ to!string(size);
-        return repr;
-    }
-}
-
-/// Floating point type constructor.
-class FloatType : Type
-{
-    /// Constructor.
-    this(size_t size)
-    {
-        // TODO:
-        // We're currently limiting it to be either a float or a double.
-        assert(size == 4 || size == 8);
-        super(size);
+        /// Member types.
+        Type[] types;
+        /// Corresponding offsets.
+        size_t[] offsets;
     }
 
-    override string toString() const 
+    struct PtrInfo
     {
-        return (size == 32) ? "float" : "double";
+        /// Pointee type.
+        Type type;
     }
-}
 
-/// Void type constructor.
-class VoidType : Type {
+    /// Size in bytes.
+    size_t size = 0;
+
+    /// Unsigned.
+    bool unsig = false;
+
+    /// Static.
+    bool stat = false;
+
+    /// Tag.
+    Kind kind;
+    union {
+        /// ARRAY.
+        ArrayInfo asArr;
+        /// PTR.
+        PtrInfo asPtr;
+        /// STRUCT or UNION.
+        StructInfo asStruct;
+        /// FUNC.
+        FuncInfo asFunc;
+    }
+
+    /// void.
     this() {
-        super();
-    }
-}
-
-/// Pointer type constructor.
-class PointerType : Type
-{
-    /// Pointee type.
-    Type pointeeT;
-
-    /// Constructor.
-    this(Type pointeeT)
-    {
-        // NOTE: we're only targeting 64-bit posix.
-        super(64);
-        this.pointeeT = pointeeT;
+        kind = VOID;
     }
 
-    override string toString() const
+    /// Numberic.
+    this(Kind kind, size_t size, bool unsig = false)
     {
-        return pointeeT.toString() ~ "*";
-    }
-}
+        assert(
+            kind == BOOL_   ||
+            kind == CHAR    ||
+            kind == SHORT   ||
+            kind == INT     ||
+            kind == LONG    ||
+            kind == LLONG   ||
+            kind == FLOAT   ||
+            kind == DOUBLE  ||
+            kind == ENUM
+        );
 
-/// Array(one dimension) type constructor.
-class ArrType : Type
-{
-    /// Element type.
-    Type elemT;
-
-    /// Capicity belongs to the type.
-    size_t cap;
-
-    /// Constructor.
-    this(Type elemT, size_t cap)
-    {
-        super(elemT.size * cap);
-
-        this.elemT = elemT;
-        this.cap = cap;
+        this.kind = kind;
+        this.size = size;
+        this.unsig = unsig;
     }
 
-    override string toString() const
+    /// Pointer or array.
+    this(Kind kind, Type type, size_t len = 0)
     {
-        return elemT.toString() ~ format("[%s]", cap);
-    }
-}
+        assert(kind == ARRAY || kind == PTR);
 
-/// Struct type constructor.
-class StructType : Type
-{
-    /// Field types.
-    Type[] fields;
-
-    /// Offset of each field.
-    size_t[] offsets;
-
-    /// Constructor.
-    this(Type[] fields)
-    {
-        super();
-
-        this.fields = fields;
-        assignOffset(alignment);
-    }
-
-    private size_t alignment() const
-    {
-        size_t alignment = 0;
-
-        foreach (f; fields)
+        this.kind = kind;
+        if (kind == ARRAY)
         {
-            if (f.size > alignment)
-                alignment = f.size;
+            this.asArr = ArrayInfo(type, len);
+            this.size = type.size * len;
         }
 
-        return alignment;
-    }
-
-    private void assignOffset(size_t alignment)
-    {
-        size_t currOffset = 0;
-        for (size_t i = 0; i < fields.length;)
+        else
         {
-            auto acc = 0;
-            const auto curr = i;
-            
-            // Count for a batch of fields that satisfies
-            // the alignment.
-            while ((i < fields.length) &&
-                   (acc + fields[i].size < alignment))
-            {
-                acc += fields[i].size;
-                i++;
-            }
-
-            // Assign offsets to current batch.
-            for (size_t j = curr; j < i; j++)
-            {
-                offsets ~= currOffset;
-                currOffset += fields[j].size;
-            }
-
-            // Insert necessary padding.
-            if (acc != alignment)
-            {
-                currOffset = alignment - acc;
-            }
+            this.asPtr = PtrInfo(type);
+            this.size = size_t.sizeof;
         }
     }
 
-    /// Size of the struct.
-    size_t size() const
+    /// Function.
+    this(Kind kind, Type retType, Type[] params)
     {
-        if (fields.empty)
-            return 0;
+        assert(kind == FUNC);
 
-        return offsets[$ - 1] + fields[$ - 1].size;
+        this.kind = kind;
+        this.asFunc = FuncInfo(retType, params);
+
+        // Func name is a ptr.
+        this.size = size_t.sizeof;
+    }
+
+    /// Struct or union
+    this(Kind kind, Type[] types)
+    {
+        assert(kind == STRUCT || kind == UNION);
+
+        this.kind = kind;
+        this.asStruct = StructInfo(
+            types,
+            kind == UNION ? null : types.memberOffsets
+        );
     }
 }
 
-/// Union type constructor.
-class UnionType : Type
+/// Calculates the offsets of each member in a struct.
+size_t[] memberOffsets(Type[] types)
 {
-    /// Variant fields.
-    Type[] fields;
+    auto offsets = appender!(size_t[]);
+    offsets.reserve(10);
 
-    /// Constructor.
-    this(Type[] fields)
+    // Find the max member size.
+    size_t max = 0;
+    foreach (t; types)
     {
-        this.fields = fields;
-        super(maxField());
+        if (t.size > max)
+            max = t.size;
     }
 
-    private size_t maxField() const
+    // Assign offsets.
+    size_t currOffset = 0;
+    for (size_t i = 0; i < types.length;)
     {
-        size_t max = 0;
-
-        foreach (f; fields)
+        size_t acc = 0;
+        for (; acc + types[i].size < max; i++)
         {
-            if (f.size > max)
-                max = f.size;
+            offsets.put(currOffset);
+            currOffset += types[i].size;
+            acc += types[i].size;
         }
 
-        return max;
-    }
-}
-
-// Primitive C types.
-
-const Type CChar = new IntType(1);
-const Type CUnsigChar = new IntType(1, false);
-const Type CShort = new IntType(2);
-const Type CUnsigShort = new IntType(2, false);
-const Type CInt = new IntType(4);
-const Type CUnsigInt = new IntType(4, false);
-const Type CLong = new IntType(8);
-const Type CUnsigLong = new IntType(8, false);
-const Type CFloat = new FloatType(4);
-const Type CDouble = new FloatType(8);
-const Type CVoid = new VoidType();
-
-/// Maps token to primitive types.
-/// Returns the above types if matched; otherwise returns null.
-/// NOTE: For type compatibility, see 
-/// https://www.cs.auckland.ac.nz/references/unix/digital/AQTLTBTE/DOCU_020.HTM
-auto getPrimitiveType(ref Token tok)
-{
-    switch (tok.kind)
-    {
-    case Token.KW:
-        switch (tok.stringVal)
+        // Add padding.
+        if (acc < max)
         {
-        case "short", "short int", "signed short", "signed short int":
-            return CShort;
-        
-        case "unsigned short", "unsigned short int":
-            return CUnsigShort;
-        
-        case "int", "signed", "signed int":
-            return CInt;
-
-        case "unsigned", "unsigned int":
-            return CUnsigInt;
-
-        case "long", "signed long", "long int", "signed long int":
-            return CLong;
-
-        case "unsigned long", "unsigned long int":
-            return CUnsigLong;
-
-        case "float":
-            return CFloat;
-
-        case "double":
-            return CDouble;
-
-        default:
-            return null;
+            currOffset += max - acc;
         }
-
-    default:
-        return null;
     }
-    return null;
+
+    return offsets.data;
 }
+
+/// Primitive types.
+const Type voidType = new Type();
+const Type boolType = new Type(Type.BOOL_, 1);
+const Type charType = new Type(Type.CHAR, 1);
+const Type shortType = new Type(Type.SHORT, 2);
+const Type intType = new Type(Type.INT, 4);
+const Type longType = new Type(Type.LONG, 8);
+const Type llongType = new Type(Type.LLONG, 8);
+const Type ucharType = new Type(Type.CHAR, 1, true);
+const Type ushortType = new Type(Type.SHORT, 2, true);
+const Type uintType = new Type(Type.INT, 4, true);
+const Type ulongType = new Type(Type.LONG, 8, true);
+const Type ullongType = new Type(Type.LLONG, 8, true);
+const Type floatType = new Type(Type.FLOAT, 4);
+const Type doubleType = new Type(Type.DOUBLE, 8);
+const Type enumType = new Type(Type.ENUM, 4);
 
 unittest {
-    
 }
