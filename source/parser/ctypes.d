@@ -155,7 +155,7 @@ class Type
         this.kind = kind;
         this.asStruct = StructInfo(
             members,
-            types.memberOffsets(kind == UNION)
+            types.assignOffsets(kind == UNION)
         );
         
         size_t max = !types.empty ? maxElement!"a.size"(types).size : 0;
@@ -185,8 +185,6 @@ class Type
 
 /// Returns the offset of [name] within [structure].
 /// Returns -1 if [name] is not a member of [structure].
-/// [name] - Member name.
-/// [structure] - Object type.
 size_t offsetFrom(wstring name, Type structure)
 {
     assert(
@@ -194,7 +192,7 @@ size_t offsetFrom(wstring name, Type structure)
         structure.kind == Type.UNION
     );
 
-    auto structInfo = structure.asStruct;
+    auto structInfo = &structure.asStruct;
     foreach (i, m; structInfo.members)
     {
         if (m.name == name)
@@ -203,8 +201,27 @@ size_t offsetFrom(wstring name, Type structure)
     return -1;
 }
 
+/// Returns the type of [name] within [structure].
+/// Returns null if [name] is a not member of [structure].
+Type memberType(wstring name, Type structure)
+{
+    assert(
+        structure.kind == Type.STRUCT || 
+        structure.kind == Type.UNION
+    );
+
+    auto structInfo = &structure.asStruct;
+    foreach (m; structInfo.members)
+    {
+        if (m.name == name)
+            return m.type;
+    }
+
+    return null;
+}
+
 /// Calculates the offsets of each member in a struct.
-private size_t[] memberOffsets(Type[] types, bool isUnion)
+private size_t[] assignOffsets(Type[] types, bool isUnion)
 {
     auto offsets = appender!(size_t[]);
     offsets.reserve(10);
@@ -324,4 +341,9 @@ unittest {
     assert(4 == "bar".offsetFrom(fooStruct));
     assert(0 == "integer".offsetFrom(barUnion));
     assert(0 == "longInteger".offsetFrom(barUnion));
+
+    assert(boolType == "foo".memberType(fooStruct));
+    assert(intType == "bar".memberType(fooStruct));
+    assert(shortType == "integer".memberType(barUnion));
+    assert(longType == "longInteger".memberType(barUnion));
 }

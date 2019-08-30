@@ -222,6 +222,11 @@ class ObjMember : Expr
     {
         assert(obj !is null);
         assert(name !is null);
+        assert(
+            obj.type.kind == Type.STRUCT ||
+            obj.type.kind == Type.UNION,
+            "Type of `obj` should be a struct or union"
+        );
 
         
     }
