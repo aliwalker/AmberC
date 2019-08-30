@@ -4,7 +4,8 @@
 module parser.ctypes;
 
 import std.array;
-import std.algorithm.searching;
+import std.algorithm;
+import std.typecons;
 import parser.lexer;
 
 /// C type constructor. Used in AST.
@@ -47,11 +48,14 @@ class Type
         Type[] params;
     }
 
+    alias StructMember = Tuple!(Type, "type", wstring, "name");
+
     /// Struct or union.
     struct StructInfo
     {
-        /// Member types.
-        Type[] types;
+        /// StructMembers.
+        StructMember[] members;
+
         /// Corresponding offsets.
         size_t[] offsets;
     }
@@ -141,13 +145,16 @@ class Type
     }
 
     /// Struct or union
-    this(Kind kind, Type[] types)
+    this(Kind kind, StructMember[] members)
     {
         assert(kind == STRUCT || kind == UNION);
+        auto types = members
+            .map!(m => m.type)
+            .array;
 
         this.kind = kind;
         this.asStruct = StructInfo(
-            types,
+            members,
             types.memberOffsets(kind == UNION)
         );
         
@@ -168,10 +175,16 @@ class Type
                 (rhs.asPtr == this.asPtr) &&
                 (rhs.asStruct == this.asStruct));
     }
+
+    // TODO:
+    override string toString() const
+    {
+        return "Type";
+    }
 }
 
 /// Calculates the offsets of each member in a struct.
-size_t[] memberOffsets(Type[] types, bool isUnion)
+private size_t[] memberOffsets(Type[] types, bool isUnion)
 {
     auto offsets = appender!(size_t[]);
     offsets.reserve(10);
@@ -249,21 +262,33 @@ static this()
 }
 
 unittest {
-    Type fooStruct = new Type(Type.STRUCT, [boolType, intType]);
+    alias StructMember = Type.StructMember;
+    auto fooStruct = new Type(Type.STRUCT, [
+        StructMember(boolType, "foo"),
+        StructMember(intType, "bar"),
+    ]);
+
     assert(fooStruct.kind == Type.STRUCT);
     assert(fooStruct.size == 8);
-    assert(fooStruct.asStruct.types.length == 2);
-    assert(fooStruct.asStruct.types[0] == boolType);
-    assert(fooStruct.asStruct.types[1] == intType);
+    assert(fooStruct.asStruct.members.length == 2);
+    assert(fooStruct.asStruct.members[0].type == boolType);
+    assert(fooStruct.asStruct.members[1].type == intType);
+    assert(fooStruct.asStruct.members[0].name == "foo");
+    assert(fooStruct.asStruct.members[1].name == "bar");
     assert(fooStruct.asStruct.offsets[0] == 0);
     assert(fooStruct.asStruct.offsets[1] == 4);
 
-    Type barUnion = new Type(Type.UNION, [shortType, longType]);
+    Type barUnion = new Type(Type.UNION, [
+        StructMember(shortType, "integer"), 
+        StructMember(longType, "longInteger"),
+    ]);
     assert(barUnion.kind == Type.UNION);
     assert(barUnion.size == 8);
-    assert(barUnion.asStruct.types.length == 2);
-    assert(barUnion.asStruct.types[0] == shortType);
-    assert(barUnion.asStruct.types[1] == longType);
+    assert(barUnion.asStruct.members.length == 2);
+    assert(barUnion.asStruct.members[0].type == shortType);
+    assert(barUnion.asStruct.members[1].type == longType);
+    assert(barUnion.asStruct.members[0].name == "integer");
+    assert(barUnion.asStruct.members[1].name == "longInteger");
     assert(barUnion.asStruct.offsets[0] == 0);
     assert(barUnion.asStruct.offsets[1] == 0);
 
