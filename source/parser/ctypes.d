@@ -152,7 +152,7 @@ class Type
         );
         
         size_t max = !types.empty ? maxElement!"a.size"(types).size : 0;
-        this.size = max * types.length;
+        this.size = kind == UNION ? max : max * types.length;
     }
 }
 
@@ -246,6 +246,7 @@ unittest {
 
     Type barUnion = new Type(Type.UNION, [shortType, longType]);
     assert(barUnion.kind == Type.UNION);
+    assert(barUnion.size == 8);
     assert(barUnion.asStruct.types.length == 2);
     assert(barUnion.asStruct.types[0] == shortType);
     assert(barUnion.asStruct.types[1] == longType);
