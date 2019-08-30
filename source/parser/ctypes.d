@@ -183,6 +183,26 @@ class Type
     }
 }
 
+/// Returns the offset of [name] within [structure].
+/// Returns -1 if [name] is not a member of [structure].
+/// [name] - Member name.
+/// [structure] - Object type.
+size_t offsetFrom(wstring name, Type structure)
+{
+    assert(
+        structure.kind == Type.STRUCT || 
+        structure.kind == Type.UNION
+    );
+
+    auto structInfo = structure.asStruct;
+    foreach (i, m; structInfo.members)
+    {
+        if (m.name == name)
+            return structInfo.offsets[i];
+    }
+    return -1;
+}
+
 /// Calculates the offsets of each member in a struct.
 private size_t[] memberOffsets(Type[] types, bool isUnion)
 {
@@ -299,4 +319,9 @@ unittest {
 
     Type intc = new Type(Type.INT, 4);
     assert(intc == intType);
+
+    assert(0 == "foo".offsetFrom(fooStruct));
+    assert(4 == "bar".offsetFrom(fooStruct));
+    assert(0 == "integer".offsetFrom(barUnion));
+    assert(0 == "longInteger".offsetFrom(barUnion));
 }
