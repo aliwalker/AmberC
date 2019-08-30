@@ -89,7 +89,7 @@ class Type
     }
 
     /// void.
-    this() {
+    private this() {
         kind = VOID;
     }
 
@@ -185,12 +185,25 @@ class Type
 
 /// Returns the offset of [name] within [structure].
 /// Returns -1 if [name] is not a member of [structure].
-size_t offsetFrom(wstring name, Type structure)
+size_t offsetFrom(wstring name, Type structure, bool allowPtr = true)
 {
     assert(
-        structure.kind == Type.STRUCT || 
-        structure.kind == Type.UNION
+        (structure.kind == Type.STRUCT)   ||
+        (structure.kind == Type.UNION)    ||
+        (structure.kind == Type.PTR && allowPtr)
     );
+
+    // If [structure] is a struct ptr type, search that struct.
+    if (structure.kind == Type.PTR && allowPtr)
+    {
+        return name.offsetFrom(structure.asPtr.type, false);
+    }
+
+    // A ptr cannot have any member.
+    else if (structure.kind == Type.PTR)
+    {
+        return -1;
+    }
 
     auto structInfo = &structure.asStruct;
     foreach (i, m; structInfo.members)
@@ -203,14 +216,26 @@ size_t offsetFrom(wstring name, Type structure)
 
 /// Returns the type of [name] within [structure].
 /// Returns null if [name] is a not member of [structure].
-Type memberType(wstring name, Type structure)
+Type memberType(wstring name, Type structure, bool allowPtr = true)
 {
     assert(
-        structure.kind == Type.STRUCT || 
-        structure.kind == Type.UNION
+        (structure.kind == Type.STRUCT)   || 
+        (structure.kind == Type.UNION)    ||
+        (structure.kind == Type.PTR && allowPtr)
     );
 
-    auto structInfo = &structure.asStruct;
+    // Ditto.
+    if (structure.kind == Type.PTR && allowPtr)
+    {
+        return name.memberType(structure.asPtr.type, false);
+    }
+
+    else if (structure.kind == Type.PTR)
+    {
+        return null;
+    }
+
+    auto structInfo = structure.asStruct;
     foreach (m; structInfo.members)
     {
         if (m.name == name)
@@ -346,4 +371,11 @@ unittest {
     assert(intType == "bar".memberType(fooStruct));
     assert(shortType == "integer".memberType(barUnion));
     assert(longType == "longInteger".memberType(barUnion));
+
+    Type fooStructPtrTy = new Type(Type.PTR, fooStruct);
+    Type barPtrTy = new Type(Type.PTR, barUnion);
+    assert(boolType == "foo".memberType(fooStructPtrTy));
+    assert(intType == "bar".memberType(fooStructPtrTy));
+    assert(shortType == "integer".memberType(barPtrTy));
+    assert(longType == "longInteger".memberType(barPtrTy));
 }

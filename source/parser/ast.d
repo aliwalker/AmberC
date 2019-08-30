@@ -217,8 +217,11 @@ class ObjMember : Expr
     /// Member name.
     wstring name;
 
+    /// Whether [obj] is a pointer.
+    bool ptr;
+
     /// Constructor
-    this(Expr obj, wstring name, SrcSpan span)
+    this(Expr obj, wstring name, bool ptr, SrcSpan span)
     {
         assert(obj !is null);
         assert(name !is null);
@@ -227,8 +230,15 @@ class ObjMember : Expr
             obj.type.kind == Type.UNION,
             "Type of `obj` should be a struct or union"
         );
+        assert(
+            name.memberType(obj.type),
+            "Invalid member access"
+        );
 
-        
+        super(name.memberType(obj.type), span);
+        this.obj = obj;
+        this.name = name;
+        this.ptr = ptr;
     }
 }
 
