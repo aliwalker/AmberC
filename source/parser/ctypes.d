@@ -154,6 +154,20 @@ class Type
         size_t max = !types.empty ? maxElement!"a.size"(types).size : 0;
         this.size = kind == UNION ? max : max * types.length;
     }
+
+    // TODO:
+    override bool opEquals(Object o) const
+    {
+        auto rhs = cast(const Type)o;
+        return ((rhs.kind == kind) &&
+                (rhs.size == size) &&
+                (rhs.unsig == unsig) &&
+                (rhs.stat == stat) &&
+                (rhs.asArr == this.asArr) &&
+                (rhs.asFunc == this.asFunc) &&
+                (rhs.asPtr == this.asPtr) &&
+                (rhs.asStruct == this.asStruct));
+    }
 }
 
 /// Calculates the offsets of each member in a struct.
@@ -257,4 +271,7 @@ unittest {
     assert(funcT.kind == Type.FUNC);
     assert(funcT.asFunc.retType == voidType);
     assert(funcT.asFunc.params[0] == intType);
+
+    Type intc = new Type(Type.INT, 4);
+    assert(intc == intType);
 }
