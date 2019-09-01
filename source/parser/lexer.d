@@ -104,6 +104,7 @@ immutable wstring[] operators = [
     "-="w,
     "*="w,
     "/="w,
+    "%="w,
     "&&"w,
     "||"w,
     "<="w,

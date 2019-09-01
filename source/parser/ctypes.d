@@ -183,6 +183,26 @@ class Type
     }
 }
 
+/// Whether [type] is a struct.
+bool isStructTy(Type type)
+{
+    return type.kind == Type.STRUCT;
+}
+
+/// Whether [type] is a function.
+bool isFuncTy(Type type)
+{
+    return type.kind == Type.FUNC;
+}
+
+/// Get the return type of a function type.
+Type returnTy(Type type)
+{
+    assert(type.isFuncTy);
+
+    return type.asFunc.retType;
+}
+
 /// Returns the offset of [name] within [structure].
 /// Returns -1 if [name] is not a member of [structure].
 size_t offsetFrom(wstring name, Type structure, bool allowPtr = true)
