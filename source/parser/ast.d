@@ -37,9 +37,10 @@ class Expr : Node
     Type type;
     
     /// Constructor.
-    this(SrcLoc loc)
+    this(Type type, SrcLoc loc)
     {
         super(loc);
+        this.type = type;
     }
 }
 
@@ -149,6 +150,7 @@ class UnaryExpr : Expr
         /// E.g., !foo
         BOOL_NOT,
     }
+    Kind kind;
 
     /// Operand.
     Expr opnd;
@@ -161,9 +163,10 @@ class UnaryExpr : Expr
         
         super(exprTy, loc);
         this.opnd = opnd;
+        this.kind = kind;
     }
 
-    override string toString() const
+    override string toString()
     {
         final switch (kind)
         {
@@ -300,7 +303,7 @@ class FuncExpr : Expr
     {
         assert(type !is null);
         assert(name !is null);
-        assert(name.isFuncTy);
+        assert(type.isFuncTy);
 
         super(type, loc);
         this.name = name;
@@ -419,7 +422,7 @@ class LoopStmt : Stmt
 
         this.kind = kind;
         this.cond = cond;
-        this.init_ = init;
+        this.init_ = init_;
         this.incr = incr;
         this.body = body;
     }
@@ -510,25 +513,31 @@ class VarDecl : Node
     InitExpr[] initVals;
 
     /// Constructor.
-    this(IdentExpr name, InitExpr initVal, SrcLoc loc)
+    this(IdentExpr name, InitExpr[] initVals, SrcLoc loc)
     {
         assert(name !is null);
 
         super(loc);
         this.name = name;
-        this.initVal = initVal;
+        this.initVals = initVals;
+    }
+
+    /// Constructor. Single InitExpr.
+    this(IdentExpr name, InitExpr initVal, SrcLoc loc)
+    {
+        this(name, [initVal], loc);
     }
 
     /// Whether this name is an array.
     bool isArray() const
     {
-        return name.kind == Type.PTR;
+        return name.type.kind == Type.PTR;
     }
 
     /// Whether this name is a pointer.
     bool isPtr() const
     {
-        return name.kind == Type.PTR;
+        return name.type.kind == Type.PTR;
     }
 }
 
