@@ -8,26 +8,25 @@ import std.conv;
 import parser.ctypes;
 import parser.lexer;
 
-/// Represents the span of an AST node in the source code.
-struct SrcSpan
+/// Represents the source location.
+struct SrcLoc
 {
-    /// Beginning position.
-    SrcPos  begin;
-
-    /// Ending position(inclusive).
-    SrcPos  end;
+    /// Location within source file.
+    SrcPos  pos;
+    /// Name of the source file.
+    string  filename;
 }
 
 /// Base class for all AST node types.
 class Node
 {
-    /// All nodes should have a span.
-    SrcSpan span;
+    /// Starting location in the source file.
+    SrcLoc loc;
 
     /// Constructor.
-    this(SrcSpan span)
+    this(SrcLoc loc)
     {
-        this.span = span;
+        this.loc = loc;
     }
 }
 
@@ -38,9 +37,9 @@ class Expr : Node
     Type type;
     
     /// Constructor.
-    this(SrcSpan span)
+    this(SrcLoc loc)
     {
-        super(span);
+        super(loc);
     }
 }
 
@@ -51,7 +50,7 @@ class IntExpr : Expr
     long value;
 
     /// Integer.
-    this(Type type, long val, SrcSpan span)
+    this(Type type, long val, SrcLoc loc)
     {
         assert(
             type == shortType   ||
@@ -64,7 +63,7 @@ class IntExpr : Expr
             type == ullongType
         );
 
-        super(type, span);
+        super(type, loc);
         this.value = val;
     }
 }
@@ -76,11 +75,11 @@ class FloatExpr : Expr
     double value;
 
     /// Constructor.
-    this(Type type, double val, SrcSpan span)
+    this(Type type, double val, SrcLoc loc)
     {
         assert(type == floatType || type == doubleType);
 
-        super(type, span);
+        super(type, loc);
         this.value = val;
     }
 }
@@ -92,10 +91,10 @@ class StringExpr : Expr
     wstring value;
 
     /// Constructor.
-    this(wstring val, SrcSpan span)
+    this(wstring val, SrcLoc loc)
     {
         // String literal is const char*
-        super(new Type(Type.PTR, charType), span);
+        super(new Type(Type.PTR, charType), loc);
         this.value = val;
     }
 }
@@ -106,11 +105,15 @@ class IdentExpr : Expr
     /// Name of the identifier.
     wstring name;
 
+    /// Whether this identifier refers to a global
+    /// declaration.
+    bool isGlobal;
+
     /// Constructor
-    this(Type type, wstring name, SrcSpan span)
+    this(Type type, wstring name, bool isGlobal, SrcLoc loc)
     {
         assert(name !is null);
-        super(type, span);
+        super(type, loc);
         this.name = name;
     }
 }
@@ -151,12 +154,12 @@ class UnaryExpr : Expr
     Expr opnd;
 
     /// Constructor.
-    this(Kind kind, Type exprTy, Expr opnd, SrcSpan span)
+    this(Kind kind, Type exprTy, Expr opnd, SrcLoc loc)
     {
         assert(exprTy !is null);
         assert(opnd !is null);
         
-        super(exprTy, span);
+        super(exprTy, loc);
         this.opnd = opnd;
     }
 
@@ -190,13 +193,13 @@ class MemberExpr : Expr
     wstring name;
 
     /// Constructor.
-    this(Expr struc, wstring name, SrcSpan span)
+    this(Expr struc, wstring name, SrcLoc loc)
     {
         assert(struc !is null);
         assert(name !is null);
         assert(isStructTy(struc.type));
 
-        super(struc.type, span);
+        super(struc.type, loc);
         this.struc = struc;
         this.name = name;
     }
@@ -214,12 +217,12 @@ class CallExpr : Expr
     /// Constructor.
     /// [funcType] - A function type.
     /// [callee] - Func name.
-    this(Type funcType, wstring callee, Expr[] args, SrcSpan span)
+    this(Type funcType, wstring callee, Expr[] args, SrcLoc loc)
     {
         assert(funcType.kind == Type.FUNC);
         assert(callee !is null);
 
-        super(funcType, span);
+        super(funcType, loc);
         this.callee = callee;
         this.args = args;
     }
@@ -240,13 +243,13 @@ class BinExpr : Expr
     Expr rhs;
 
     /// Constructor.
-    this(Type resType, wstring op, Expr lhs, Expr rhs, SrcSpan span)
+    this(Type resType, wstring op, Expr lhs, Expr rhs, SrcLoc loc)
     {
         assert(resType !is null);
         assert(op !is null);
         assert(lhs !is null && rhs !is null);
 
-        super(resType, span);
+        super(resType, loc);
         this.op = op;
         this.lhs = lhs;
         this.rhs = rhs;
@@ -266,7 +269,7 @@ class AssignExpr : Expr
     Expr rhs;
 
     /// Constructor.
-    this(Type resType, wstring op, Expr lhs, Expr rhs, SrcSpan span)
+    this(Type resType, wstring op, Expr lhs, Expr rhs, SrcLoc loc)
     {
         assert(lhs !is null && rhs !is null);
         assert(lhs.type == resType);
@@ -279,7 +282,7 @@ class AssignExpr : Expr
             op == "%="
         );
 
-        super(resType, span);
+        super(resType, loc);
         this.lhs = lhs;
         this.rhs = rhs;
     }
@@ -293,14 +296,35 @@ class FuncExpr : Expr
     wstring name;
 
     /// Constructor.
-    this(Type type, wstring name, SrcSpan span)
+    this(Type type, wstring name, SrcLoc loc)
     {
         assert(type !is null);
         assert(name !is null);
         assert(name.isFuncTy);
 
-        super(type, span);
+        super(type, loc);
         this.name = name;
+    }
+}
+
+/// Represents the expression that can appear after '='
+/// in the declaration.
+class InitExpr : Expr
+{
+    /// Initial value.
+    Expr value;
+
+    /// Offset from the variable. Used in array.
+    size_t offset;
+
+    /// Constructor.
+    this(Expr value, size_t offset, SrcLoc loc)
+    {
+        assert(value !is null);
+
+        super(value.type, loc);
+        this.value = value;
+        this.offset = offset;
     }
 }
 
@@ -312,9 +336,9 @@ class FuncExpr : Expr
 class Stmt : Node
 {
     /// Constructor.
-    this(SrcSpan span)
+    this(SrcLoc loc)
     {
-        super(span);
+        super(loc);
     }
 }
 
@@ -325,9 +349,9 @@ class ExprStmt : Stmt
     Expr expr;
 
     /// Constructor.
-    this(Expr expr, SrcSpan span)
+    this(Expr expr, SrcLoc loc)
     {
-        super(span);
+        super(loc);
         this.expr = expr;
     }
 
@@ -351,9 +375,9 @@ class IfStmt : Stmt
     Stmt else_;
 
     /// Constructor.
-    this(Expr cond, Stmt then, Stmt else_, SrcSpan span)
+    this(Expr cond, Stmt then, Stmt else_, SrcLoc loc)
     {
-        super(span);
+        super(loc);
 
         this.cond = cond;
         this.then = then;
@@ -389,9 +413,9 @@ class LoopStmt : Stmt
 
     /// For.
     this(Kind kind, Stmt init_, Expr cond,
-                 Stmt incr, Stmt body, SrcSpan span)
+                 Stmt incr, Stmt body, SrcLoc loc)
     {
-        super(span);
+        super(loc);
 
         this.kind = kind;
         this.cond = cond;
@@ -401,11 +425,11 @@ class LoopStmt : Stmt
     }
 
     /// While or do-while.
-    this(Kind kind, Expr cond, Stmt body, SrcSpan span)
+    this(Kind kind, Expr cond, Stmt body, SrcLoc loc)
     {
         assert(kind == WHILE || kind == DO);
         
-        this(kind, null, cond, null, body, span);
+        this(kind, null, cond, null, body, loc);
     }
 }
 
@@ -424,9 +448,9 @@ class BCStmt : Stmt
     Kind kind;
 
     /// Constructor.
-    this(Kind kind, SrcSpan span)
+    this(Kind kind, SrcLoc loc)
     {
-        super(span);
+        super(loc);
         this.kind = kind;
     }
 }
@@ -438,16 +462,16 @@ class RetStmt : Stmt
     Expr retValue;
 
     /// Constructor.
-    this(Expr retValue, SrcSpan span)
+    this(Expr retValue, SrcLoc loc)
     {
-        super(span);
+        super(loc);
         this.retValue = retValue;
     }
 
     /// Constructor.
-    this(SrcSpan span)
+    this(SrcLoc loc)
     {
-        super(span);
+        super(loc);
         this.retValue = null;
     }
 }
@@ -459,12 +483,78 @@ class CompStmt : Stmt
     Stmt[] body;
 
     /// Constructor.
-    this(Stmt[] stmts, SrcSpan)
+    this(Stmt[] stmts, SrcLoc loc)
     {
-        super(span);
+        super(loc);
         this.body = stmts;
     }
 }
 
 // TODO:
-// class SwitchStmt : Stmt
+// class SwitchStmt : Stmt;
+// class GotoStmt : Stmt;
+
+/*
+* Declaration.
+*/
+
+/// Represents a variable declaration.
+class VarDecl : Node
+{
+    /// Name being declared. Use AST Node here because
+    /// IdentExpr contains type and local/global info.
+    IdentExpr name;
+
+    /// Initial values.
+    /// Use array type because this VarDecl might declare an array.
+    InitExpr[] initVals;
+
+    /// Constructor.
+    this(IdentExpr name, InitExpr initVal, SrcLoc loc)
+    {
+        assert(name !is null);
+
+        super(loc);
+        this.name = name;
+        this.initVal = initVal;
+    }
+
+    /// Whether this name is an array.
+    bool isArray() const
+    {
+        return name.kind == Type.PTR;
+    }
+
+    /// Whether this name is a pointer.
+    bool isPtr() const
+    {
+        return name.kind == Type.PTR;
+    }
+}
+
+/// Represents a function declaration.
+class FuncDecl : Node
+{
+    /// Name bing declared. Use AST Node here because
+    /// IdentExpr contains type and local/global info.
+    IdentExpr name;
+
+    /// Statements within function body.
+    Stmt[] body;
+
+    /// Constructor.
+    this(IdentExpr name, Stmt[] body, SrcLoc loc)
+    {
+        assert(name !is null);
+
+        super(loc);
+        this.name = name;
+        this.body = body;
+    }
+
+    /// Whether this decl contains a body.
+    bool isDefinition() const
+    {
+        return (body !is null);
+    }
+}
