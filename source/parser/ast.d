@@ -6,7 +6,7 @@ module parser.ast;
 import std.format;
 import std.conv;
 import parser.ctypes;
-import parser.lexer;
+import parser.lexer : SrcPos;
 
 /// Represents the source location.
 struct SrcLoc
@@ -95,7 +95,7 @@ class StringExpr : Expr
     this(string val, SrcLoc loc)
     {
         // String literal is const char*
-        super(new Type(Type.PTR, charType), loc);
+        super(new PtrType(charType), loc);
         this.value = val;
     }
 }
@@ -113,6 +113,7 @@ class IdentExpr : Expr
     /// Constructor
     this(Type type, string name, bool isGlobal, SrcLoc loc)
     {
+        assert(type !is null);
         assert(name !is null);
         super(type, loc);
         this.name = name;
@@ -200,7 +201,7 @@ class MemberExpr : Expr
     {
         assert(struc !is null);
         assert(name !is null);
-        assert(isStructTy(struc.type));
+        assert(cast(RecType)(struc.type) !is null);
 
         super(struc.type, loc);
         this.struc = struc;
@@ -218,14 +219,14 @@ class CallExpr : Expr
     Expr[] args;
 
     /// Constructor.
-    /// [funcType] - A function type.
+    /// [retType] - function's return type.
     /// [callee] - Func name.
-    this(Type funcType, string callee, Expr[] args, SrcLoc loc)
+    this(Type retType, string callee, Expr[] args, SrcLoc loc)
     {
-        assert(funcType.kind == Type.FUNC);
+        assert(retType !is null);
         assert(callee !is null);
 
-        super(funcType, loc);
+        super(retType, loc);
         this.callee = callee;
         this.args = args;
     }
@@ -262,7 +263,7 @@ class BinExpr : Expr
 /// Represents an assignment.
 class AssignExpr : Expr
 {
-    /// Operator.
+    /// Operator: =, +=, -=, etc.
     string op;
 
     /// An lvalue.
@@ -277,7 +278,7 @@ class AssignExpr : Expr
         assert(lhs !is null && rhs !is null);
         assert(lhs.type == resType);
         assert(
-            op == "=" ||
+            op == "="  ||
             op == "+=" ||
             op == "-=" ||
             op == "*=" ||
@@ -303,15 +304,22 @@ class FuncExpr : Expr
     {
         assert(type !is null);
         assert(name !is null);
-        assert(type.isFuncTy);
+        assert(cast(FuncType)type !is null);
 
         super(type, loc);
         this.name = name;
     }
 }
 
-/// Represents the expression that can appear after '='
-/// in the declaration.
+/// Represents a single initialization.
+/// For example, the following declaration
+///
+/// int arr[] = {1, 2, 3};
+///
+/// has 3 InitExpr's:
+/// InitExpr(value: 1, offset: 0)
+/// InitExpr(value: 2, offset: 4)
+/// InitExpr(value: 3, offset: 8)
 class InitExpr : Expr
 {
     /// Initial value.
@@ -528,16 +536,11 @@ class VarDecl : Node
         this(name, [initVal], loc);
     }
 
-    /// Whether this name is an array.
-    bool isArray() const
+    /// Whether the variable being declared is of type T.
+    bool isofType(T)() const
     {
-        return name.type.kind == Type.ARRAY;
-    }
-
-    /// Whether this name is a pointer.
-    bool isPtr() const
-    {
-        return name.type.kind == Type.PTR;
+        static assert(is (T : type));
+        return (cast(T)(name.type) !is null);
     }
 }
 

@@ -1,7 +1,7 @@
 ///     This file contains C type related utilities.
 ///     Copyright 2019 Yiyong Li.
 
-module ctypes;
+module parser.ctypes;
 
 import std.stdio;
 import std.array;
