@@ -586,7 +586,7 @@ LexingResult lexStream(ref CharStream chars)
         // Decimal int or floating point number.
         else if (digit(ch))
         {
-            enum decRegex = ctRegex!(`^[1-9][0-9]+(\.[0-9]+)?`);
+            enum decRegex = ctRegex!(`^[1-9][0-9]*(\.[0-9]+)?`);
             auto m = chars.match(decRegex);
 
             assert(!m.empty);
@@ -734,6 +734,80 @@ LexingResult lexStream(ref CharStream chars)
     }
 
     return LexingResult(tokens.data, errors);
+}
+
+/// A stream of tokens.
+struct TokenStream
+{
+    /// Errors.
+    LexingError[] errors;
+
+    /// Results.
+    Token[] tokens;
+
+    /// Current index.
+    size_t idx;
+
+    /// Constructor.
+    this(string code, string filename)
+    {
+        auto chars = CharStream(code, filename);
+        auto res = lexStream(chars);
+        
+        errors = res.errors;
+        tokens = res.tokens;
+    }
+
+    /// Peek without consuming a token.
+    Token peek(size_t dis = 0)
+    {
+        if (idx + dis >= tokens.length)
+        {
+            return tokens[$ - 1];
+        }
+
+        return tokens[idx + dis];
+    }
+
+    /// Consume a token from stream.
+    Token read()
+    {
+        if (idx >= tokens.length)
+        {
+            return tokens[$ - 1];
+        }
+
+        return tokens[idx++];
+    }
+
+    private bool matchStringval(Token.Kind kind, string val)
+    {
+        if (
+            idx >= tokens.length     ||
+            tokens[idx].kind != kind ||
+            tokens[idx].stringVal != val
+        )
+        {
+            return false;
+        }
+        
+        idx++;
+        return true;
+    }
+
+    /// Match and consume current tokens against the
+    /// given [sep]. Return true for success.
+    bool matchSep(string sep)
+    {
+        return matchStringval(Token.SEP, sep);
+    }
+
+    /// Match and consume current tokens against the
+    /// given [kw]. Return true for success.
+    bool matchKW(string kw)
+    {
+        return matchStringval(Token.KW, kw);
+    }
 }
 
 /// Test lexStream.
@@ -888,4 +962,24 @@ unittest {
         "invalid hex number"
     );
 
+}
+
+/// Test TokenStream.
+unittest
+{
+    auto tokstr = new TokenStream("int code = 4;", "dummy.c");
+
+    assert(tokstr.errors is null);
+    assert(tokstr.peek().kind == Token.KW);
+    assert(tokstr.peek().stringVal == "int");
+    assert(tokstr.matchKW("int"));
+
+    assert(tokstr.peek().kind == Token.IDENT);
+    assert(tokstr.peek().stringVal == "code");
+    tokstr.read();
+
+    assert(tokstr.matchSep("="));
+    assert(tokstr.read().intVal == 4);
+    assert(tokstr.matchSep(";"));
+    assert(tokstr.read().kind == Token.EOF);
 }
