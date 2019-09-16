@@ -14,112 +14,110 @@ import std.string;
 
 /// A list of C keywords.
 /// TODO: Some of those keywords are currently unsupported.
-immutable wstring[] keywords = [
+immutable string[] keywords = [
     // Type specifiers.
     // 6.7.2
-    "_Bool"w,
-    "char"w,
-    "double"w,
-    "float"w,
-    "int"w,
-    "long"w,
-    "short"w,
-    "signed"w,
-    "unsigned"w,
-    "void"w,
-    "struct"w,
-    "union"w,
+    "_Bool",
+    "char",
+    "double",
+    "float",
+    "int",
+    "long",
+    "short",
+    "signed",
+    "unsigned",
+    "void",
+    "struct",
+    "union",
 
     // Control flow.
-    "break"w,
-    "continue"w,
-    "do"w,
-    "else"w,
-    "for"w,
-    "if"w,
-    "switch"w,
-    "while"w,
+    "break",
+    "continue",
+    "do",
+    "else",
+    "for",
+    "if",
+    "switch",
+    "while",
 
-    "sizeof"w,
+    "sizeof",
 
     // Type qualifiers
     // 6.7.3
-    "const"w,
-    "restrict"w,
-    "volatile"w,
-    "inline"w,
+    "const",
+    "restrict",
+    "volatile",
+    "inline",
 
     // Storage-class specifiers.
     // 6.7.1
-    "auto"w,
-    "extern"w,
-    "register"w,
-    "static"w,
-    "typedef"w,
+    "auto",
+    "extern",
+    "register",
+    "static",
+    "typedef",
 ];
 
 /// A list of seperators string repr.
-immutable wstring[] seperators = [
-    "\\"w,
-    "\""w,
-    "'"w,
-    "("w,
-    ")"w,
-    "["w,
-    "]"w,
-    "{"w,
-    "}"w,
-    ","w,
-    ":"w,
-    ";"w,
-    "?"w,
+immutable string[] seperators = [
+    "\\",
+    "\"",
+    "'",
+    "(",
+    ")",
+    "[",
+    "]",
+    "{",
+    "}",
+    ",",
+    ":",
+    ";",
+    "?",
 ];
 
 /// A list of operator string repr.
 /// Be sure to add operators according to their lengths,
 /// because the lexer depends on this order.
-immutable wstring[] operators = [
+immutable string[] operators = [
     // Single char
-    "+"w,
-    "-"w,
-    "*"w,
-    "/"w,
-    "%"w,
-    "!"w,
-    "<"w,
-    ">"w,
-    "~"w,
-    "."w,
-    "^"w,
-    "&"w,
-    "|"w,
-    "="w,
+    "+",
+    "-",
+    "*",
+    "/",
+    "%",
+    "!",
+    "<",
+    ">",
+    "~",
+    ".",
+    "^",
+    "&",
+    "|",
+    "=",
 
     // Multiple chars.
-    "++"w,
-    "--"w,
-    "=="w,
-    "!="w,
-    "+="w,
-    "-="w,
-    "*="w,
-    "/="w,
-    "%="w,
-    "&&"w,
-    "||"w,
-    "<="w,
-    ">="w,
-    "<<"w,
-    ">>"w,
-    "->"w,
+    "++",
+    "--",
+    "==",
+    "!=",
+    "+=",
+    "-=",
+    "*=",
+    "/=",
+    "%=",
+    "&&",
+    "||",
+    "<=",
+    ">=",
+    "<<",
+    ">>",
+    "->",
 ];
 
 /// Line & Column.
 struct SrcPos {
-    /// line number.
     int line;
 
-    /// column number.
     int col;
 }
 
@@ -130,29 +128,45 @@ struct Token
     alias Kind = int;
     enum : Kind
     {
-        SEP,        // both seperators and operators.
-        IDENT,      // identifier.
-        KW,         // keyword.
-        INT,        // integer.
-        FLOAT,      // both float & double for now.
-        CHAR,       // single char literal.
-        STRING,     // string literal.
-        EOF,        // end of file.
+        /// both seperators and operators.
+        SEP,
+        /// Identifier.
+        IDENT,
+        /// Keyword.
+        KW,
+        /// All integers.
+        INT,
+        /// Both float and double precisions.
+        FLOAT,
+        /// Char literal.
+        CHAR,
+        /// String literal.
+        STRING,
+        /// End-of-file indicator.
+        EOF,
     }
 
     /// Type of this token.
     Kind kind;
     union
     {
+        /// Kind::INT
         long intVal;
+
+        /// Kind::FLOAT
         double floatVal;
-        wstring stringVal;
-        wchar charVal;
+
+        /// Kind::SEP, Kind::STRING, Kind::IDENT, Kind::KW
+        string stringVal;
+
+        /// Kind::CHAR
+        char charVal;
     }
 
     /// Position of this token.
     SrcPos pos;
 
+    /// Integer.
     this(Kind kind, long value, SrcPos pos) {
         assert(kind == INT, "Expect integer value");
         this.kind = kind;
@@ -160,6 +174,7 @@ struct Token
         this.pos = pos;
     }
 
+    /// FP.
     this(Kind kind, double value, SrcPos pos) {
         assert(kind == FLOAT, "Expect floating point value");
         this.kind = kind;
@@ -167,7 +182,8 @@ struct Token
         this.pos = pos;
     }
 
-    this(Kind kind, wchar ch, SrcPos pos)
+    /// Char.
+    this(Kind kind, char ch, SrcPos pos)
     {
         assert(kind == CHAR, "Expect CHAR");
         this.kind = kind;
@@ -175,7 +191,8 @@ struct Token
         this.pos = pos;
     }
 
-    this(Kind kind, wstring value, SrcPos pos) {
+    /// The rest.
+    this(Kind kind, string value, SrcPos pos) {
         assert(
             kind == KW      ||
             kind == IDENT   ||
@@ -188,6 +205,7 @@ struct Token
         this.pos = pos;
     }
 
+    /// EOF.
     this(SrcPos pos) {
         this.kind = EOF;
         this.pos = pos;
@@ -211,19 +229,19 @@ struct Token
 unittest {
     SrcPos dummy;
     
-    Token eof = Token(dummy);
+    const eof = Token(dummy);
     assert(eof.kind == Token.EOF);
 
     Token a = Token(
         Token.STRING,
-        "String value"w,
+        "String value",
         dummy
     );
     assert(a.toString() == "string: String value");
 
     Token b = Token(
         Token.SEP,
-        ")"w,
+        ")",
         dummy
     );
     assert(b.toString() == "separator: )");
@@ -233,7 +251,7 @@ unittest {
 struct CharStream
 {
     /// Input code.
-    wstring code;
+    string code;
 
     /// Source file name that contains this [code].
     string filename;
@@ -248,14 +266,14 @@ struct CharStream
     int col = 1;
 
     /// Constructor.
-    this(wstring code, string filename) {
+    this(string code, string filename) {
         this.code = code;
         this.filename = filename;
     }
 
     /// Reads a single character from source.
-    wchar read() {
-        const wchar ch = (index >= code.length) ? '\0' : code[index++];
+    char read() {
+        const char ch = (index >= code.length) ? '\0' : code[index++];
 
         if (ch == '\n') {
             line++;
@@ -268,15 +286,15 @@ struct CharStream
     }
 
     /// Peeks the current char without consuming it.
-    wchar peek(size_t offset = 0) const {
-        const wchar ch = (index + offset >= code.length) ? '\0' : code[index + offset];
+    char peek(size_t offset = 0) const {
+        const char ch = (index + offset >= code.length) ? '\0' : code[index + offset];
         return ch;
     }
 
     /// Tries to match the given [str]. 
     /// Returns true if matched, and the [str] is consumed;
     /// otherwise returns false without consuming any chars.
-    bool match(wstring str) {
+    bool match(string str) {
         // Too many chars
         if (index + str.length > code.length)
             return false;
@@ -294,7 +312,7 @@ struct CharStream
 
     /// Ditto. Matching against regular expression.
     /// Returns a Capture that contains the match; or an empty Capture.
-    auto match(StaticRegex!wchar re)
+    auto match(StaticRegex!char re)
     {
         // tries to match from current head.
         auto m = matchFirst(code[index .. code.length], re);
@@ -317,7 +335,7 @@ struct CharStream
 /// CharStream & Error.
 unittest {
     string filename = "dummy";
-    wstring code = "int someName = 1923;";
+    string code = "int someName = 1923;";
     CharStream chars = CharStream(code, filename);
 
     assert(chars.peek() == 'i');
@@ -325,7 +343,7 @@ unittest {
 
     assert(chars.match("nt ") == true);
 
-    enum nameRe = ctRegex!(`^[a-z|A-Z|_][a-z|A-Z|_|0-9]*\b`w);
+    enum nameRe = ctRegex!(`^[a-z|A-Z|_][a-z|A-Z|_|0-9]*\b`);
     auto m = chars.match(nameRe);
     assert(!m.empty);
     assert(m.captures[0] == "someName");
@@ -383,13 +401,13 @@ struct LexingResult
 }
 
 /// Returns true if [ch] is a digit.
-private bool digit(wchar ch)
+private bool digit(char ch)
 {
     return ch >= '0' && ch <= '9';
 }
 
 /// Returns true if [ch] is an alpha char.
-private bool alpha(wchar ch)
+private bool alpha(char ch)
 {
     return ((ch >= 'a' && ch <= 'z') ||
             (ch >= 'A' && ch <= 'Z') ||
@@ -397,13 +415,13 @@ private bool alpha(wchar ch)
 }
 
 /// Returns true if [ch] is a whitespace.
-private bool whitespace(wchar ch)
+private bool whitespace(char ch)
 {
     return (ch == '\r' || ch == ' ' || ch == '\n' || ch == '\t');
 }
 
 /// Returns true if [ch] is alpha or digit
-private bool alphaNumberic(wchar ch)
+private bool alphaNumberic(char ch)
 {
     return alpha(ch) || digit(ch);
 }
@@ -430,7 +448,7 @@ LexingResult lexStream(ref CharStream chars)
 
     // Matches seperators or operators. 
     // Returns true for matched.
-    bool matchSep(immutable(wstring[]) seps, SrcPos pos)
+    bool matchSep(immutable(string[]) seps, SrcPos pos)
     {
         // For seperators, the order doesn't matter.
         // For operators, the order matters.
@@ -520,7 +538,7 @@ LexingResult lexStream(ref CharStream chars)
         // Hex number.
         if (chars.match("0x"))
         {
-            enum hexRegex = ctRegex!(`^[0-9|a-f|A-F]+`w);
+            enum hexRegex = ctRegex!(`^[0-9|a-f|A-F]+`);
             auto m = chars.match(hexRegex);
 
             if (m.empty)
@@ -541,7 +559,7 @@ LexingResult lexStream(ref CharStream chars)
         // Octal number or 0.
         else if (ch == '0')
         {
-            enum octRegex = ctRegex!(`^0([0-7]+)`w);
+            enum octRegex = ctRegex!(`^0([0-7]+)`);
             auto m = chars.match(octRegex);
 
             long val = 0;
@@ -568,7 +586,7 @@ LexingResult lexStream(ref CharStream chars)
         // Decimal int or floating point number.
         else if (digit(ch))
         {
-            enum decRegex = ctRegex!(`^[1-9][0-9]+(\.[0-9]+)?`w);
+            enum decRegex = ctRegex!(`^[1-9][0-9]+(\.[0-9]+)?`);
             auto m = chars.match(decRegex);
 
             assert(!m.empty);
@@ -599,7 +617,7 @@ LexingResult lexStream(ref CharStream chars)
         // Floating point number.
         else if (ch == '.' && chars.peek(1).digit)
         {
-            enum fpRegex = ctRegex!(`^\.[0-9]+`w);
+            enum fpRegex = ctRegex!(`^\.[0-9]+`);
             auto m = chars.match(fpRegex);
 
             assert(!m.empty);
@@ -638,7 +656,7 @@ LexingResult lexStream(ref CharStream chars)
         // String literal.
         else if (ch == '"')
         {
-            wstring str = ""w;
+            string str = "";
 
             chars.read();
             for (;;)
@@ -674,7 +692,7 @@ LexingResult lexStream(ref CharStream chars)
         // Identifier or keyword.
         else if (alpha(ch))
         {
-            wstring name = "";
+            string name = "";
             name ~= chars.read();
 
             while (chars.peek().alphaNumberic)
@@ -757,7 +775,7 @@ unittest {
         }
     }
 
-    void testValidCode(wstring code, Token[] expectedToks)
+    void testValidCode(string code, Token[] expectedToks)
     {
         auto chars = CharStream(code, "dummy.c");
         auto lexingRes = lexStream(chars);
@@ -768,7 +786,7 @@ unittest {
         compareTokens(expectedToks, lexingRes.tokens);
     }
 
-    void testInvalidCode(wstring code, string expectedMsg)
+    void testInvalidCode(string code, string expectedMsg)
     {
         auto chars = CharStream(code, "dummy.c");
         auto lexingRes = lexStream(chars);
@@ -783,15 +801,15 @@ unittest {
     testValidCode(
         "int dumb = 100;\ndumb += 10;",
         [
-            Token(Token.KW, "int"w, SrcPos()),
-            Token(Token.IDENT, "dumb"w, SrcPos()),
-            Token(Token.SEP, "="w, SrcPos()),
+            Token(Token.KW, "int", SrcPos()),
+            Token(Token.IDENT, "dumb", SrcPos()),
+            Token(Token.SEP, "=", SrcPos()),
             Token(Token.INT, 100L, SrcPos()),
-            Token(Token.SEP, ";"w, SrcPos()),
-            Token(Token.IDENT, "dumb"w, SrcPos()),
-            Token(Token.SEP, "+="w, SrcPos()),
+            Token(Token.SEP, ";", SrcPos()),
+            Token(Token.IDENT, "dumb", SrcPos()),
+            Token(Token.SEP, "+=", SrcPos()),
             Token(Token.INT, 10L, SrcPos()),
-            Token(Token.SEP, ";"w, SrcPos()),
+            Token(Token.SEP, ";", SrcPos()),
             Token(SrcPos()),
         ]
     );
@@ -832,8 +850,8 @@ unittest {
         "0; ident",
         [
             Token(Token.INT, 0L, SrcPos()),
-            Token(Token.SEP, ";"w, SrcPos()),
-            Token(Token.IDENT, "ident"w, SrcPos()),
+            Token(Token.SEP, ";", SrcPos()),
+            Token(Token.IDENT, "ident", SrcPos()),
             Token(SrcPos()),
         ]
     );

@@ -1,0 +1,352 @@
+///     This file contains C type related utilities.
+///     Copyright 2019 Yiyong Li.
+
+module ctypes;
+
+import std.stdio;
+import std.array;
+import std.algorithm.iteration;
+
+/// Size of a pointer.
+const PTR_SIZE = 8;
+
+/// Base type.
+class Type
+{
+    alias Kind = int;
+
+    /// Specifiers.
+    enum : Kind {
+        VOID = 1,
+        BOOL_,
+        CHAR,
+        SHORT,
+        INT,
+        LONG,
+        LLONG,
+        FLOAT,
+        DOUBLE,
+        // ENUM,
+        /// Composite types:
+        /// array, record, function, ptr.
+        COMP,
+    }
+    Kind kind;
+
+    /// Constructor for a base type in C.
+    this(Kind kind)
+    {
+        assert(
+            kind == VOID    ||
+            kind == BOOL_   ||
+            kind == CHAR    ||
+            kind == SHORT   ||
+            kind == INT     ||
+            kind == LONG    ||
+            kind == LLONG   ||
+            kind == FLOAT   ||
+            kind == DOUBLE  ||
+            // kind == ENUM    ||
+            kind == COMP
+        );
+        this.kind = kind;
+    }
+
+    /// C's sizeof operator.
+    ulong typeSize() const
+    {
+        switch (kind)
+        {
+            case VOID:     return 0;
+            case BOOL_:    return 1;
+            case CHAR:     return 1;
+            case SHORT:    return 2;
+            case INT:      return 4;
+            case LONG:     return 8;
+            case LLONG:    return 8;
+            case FLOAT:    return 4;
+            case DOUBLE:   return 8;
+            default:
+                return -1;
+        }
+    }
+
+    override size_t toHash() const
+    {
+        return cast(size_t)kind;
+    }
+
+    override bool opEquals(Object other) const
+    {
+        auto otherTy = cast(Type)other;
+        
+        if (otherTy is null)
+            return false;
+
+        return kind == otherTy.kind;
+    }
+}
+
+/// Struct or Union type
+class RecType : Type
+{
+    /// Name of the struct.
+    wstring name;
+
+    /// Field type.
+    struct Field {
+        /// Type of the field.
+        Type type;
+
+        /// Name of the field.
+        wstring name;
+
+        /// Offset from the beginning address.
+        size_t offset;
+    }
+
+    /// Whether this is a union type.
+    bool isUnion;
+
+    /// Member names and types.
+    Field[] members;
+
+    /// Constructor.
+    this(wstring name, Field[] members, bool isUnion = false)
+    {
+        super(COMP);
+
+        this.name = name;
+        this.members = members;
+        this.isUnion = isUnion;
+    }
+
+    override ulong typeSize() const
+    {
+        if (members is null)
+            return -1;
+
+        if (members.length == 0)
+            return 0;
+
+        auto lmember = members[$ - 1];
+        return lmember.offset + lmember.type.typeSize();
+    }
+
+    override size_t toHash() const
+    {
+        size_t hash = name.toHash();
+        
+        foreach (m; members)
+        {
+            hash *= m.type.toHash;
+        }
+        return hash;
+    }
+
+    override bool opEquals(Object other) const
+    {
+        auto rec = cast(RecType)other;
+
+        if (rec is null)
+            return false;
+
+        if (name != rec.name)
+            return false;
+
+        foreach (i, m; members)
+        {
+            if (m != rec.members[i])
+                return false;
+        }
+        return true;
+    }
+}
+
+/// Function type.
+class FuncType : Type
+{
+    /// Return type.
+    Type retType;
+
+    /// Param types.
+    Type[] params;
+
+    /// Constructor.
+    this(Type retType, Type[] params)
+    {
+        super(COMP);
+
+        this.retType = retType;
+        this.params = params;
+    }
+
+    override ulong typeSize() const
+    {
+        return PTR_SIZE;
+    }
+
+    override size_t toHash() const
+    {
+        size_t hash = retType.toHash();
+        
+        foreach (p; params)
+        {
+            hash *= p.toHash();
+        }
+        return hash;
+    }
+
+    override bool opEquals(Object other) const
+    {
+        auto func = cast(FuncType)other;
+
+        if (func is null)
+            return false;
+
+        if (func.retType != retType)
+            return false;
+
+        foreach (i, p; params)
+        {
+            if (func.params[i] != p)
+                return false;
+        }
+
+        return true;
+    }
+}
+
+/// Array type.
+class ArrayType : Type
+{
+    /// Type of the element.
+    Type elemTy;
+
+    /// Size of the array.
+    size_t size;
+
+    /// Constructor.
+    this(Type elemTy, size_t size)
+    {
+        super(COMP);
+
+        this.elemTy = elemTy;
+        this.size = size;
+    }
+
+    override ulong typeSize() const
+    {
+        return elemTy.typeSize() * size;
+    }
+
+    override size_t toHash() const
+    {
+        return elemTy.toHash() * size;
+    }
+
+    override bool opEquals(Object other) const
+    {
+        auto arr = cast(ArrayType)other;
+
+        if (arr is null)
+            return false;
+
+        if ((elemTy != arr.elemTy) || (size != size))
+            return false;
+
+        return true;
+    }
+}
+
+/// Pointer type.
+class PtrType : Type
+{
+    /// Pointee type.
+    Type base;
+
+    /// Constructor.
+    this(Type base)
+    {
+        super(COMP);
+
+        this.base = base;
+    }
+
+    override ulong typeSize() const
+    {
+        return PTR_SIZE;
+    }
+
+    override size_t toHash() const
+    {
+        return base.toHash() * COMP;
+    }
+
+    override bool opEquals(Object other) const
+    {
+        auto ptr = cast(PtrType)other;
+
+        if (ptr is null)
+            return false;
+
+        if (base != ptr.base)
+            return false;
+
+        return true;
+    }
+}
+
+/// Primitive types
+__gshared Type voidType   = new Type(Type.VOID);
+__gshared Type boolType   = new Type(Type.BOOL_);
+__gshared Type charType   = new Type(Type.CHAR);
+__gshared Type shortType  = new Type(Type.SHORT);
+__gshared Type intType    = new Type(Type.INT);
+__gshared Type longType   = new Type(Type.LONG);
+__gshared Type llongType  = new Type(Type.LLONG);
+__gshared Type ucharType  = new Type(Type.CHAR);
+__gshared Type ushortType = new Type(Type.SHORT);
+__gshared Type uintType   = new Type(Type.INT);
+__gshared Type ulongType  = new Type(Type.LONG);
+__gshared Type ullongType = new Type(Type.LLONG);
+__gshared Type floatType  = new Type(Type.FLOAT);
+__gshared Type doubleType = new Type(Type.DOUBLE);
+
+/// Creates and returns a struct type.
+RecType makeStructType(T...)(T members)
+{
+    assert(members);
+}
+
+unittest
+{
+    /// These should be equal.
+    Type intPtr = new PtrType(intType);
+    Type intPtr2 = new PtrType(intType);
+    assert(intPtr == intPtr2);
+    assert(intPtr.toHash == intPtr2.toHash);
+
+    Type longPtr = new PtrType(longType);
+    Type struc = new RecType("fooStruc", [
+        RecType.Field(longPtr, "foo", 0),
+        RecType.Field(intType, "bar", 8),
+    ]);
+    Type struc2 = new RecType("fooStruc", [
+        RecType.Field(longPtr, "foo", 0),
+        RecType.Field(intType, "bar", 8),
+    ]);
+    Type struc3 = new RecType([
+        RecType.Field(longPtr, "foo2", 0),
+        RecType.Field(intType, "bar2", 8),
+    ]);
+    assert(struc == struc2);
+    assert(struc.toHash() == struc2.toHash());
+    assert(struc3 != struc);
+    assert(struc.toHash() == struc3.toHash());
+
+    Type intarr = new ArrayType(intType, 10);
+    Type intarr2 = new ArrayType(intType, 10);
+    assert(intarr == intarr2);
+    assert(intarr.toHash() == intarr2.toHash());
+}

@@ -531,7 +531,7 @@ class VarDecl : Node
     /// Whether this name is an array.
     bool isArray() const
     {
-        return name.type.kind == Type.PTR;
+        return name.type.kind == Type.ARRAY;
     }
 
     /// Whether this name is a pointer.
