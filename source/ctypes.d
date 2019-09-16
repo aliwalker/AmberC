@@ -5,7 +5,6 @@ module ctypes;
 
 import std.stdio;
 import std.array;
-import std.algorithm.iteration;
 
 /// Size of a pointer.
 const PTR_SIZE = 8;
@@ -128,6 +127,17 @@ class RecType : Type
 
         if (members.length == 0)
             return 0;
+
+        if (isUnion)
+        {
+            ulong max = 0;
+            foreach (m; members)
+            {
+                if (m.type.typeSize > max)
+                    max = m.type.typeSize;
+            }
+            return max;
+        }
 
         auto lmember = members[$ - 1];
         return lmember.offset + lmember.type.typeSize();
@@ -313,35 +323,49 @@ __gshared Type ullongType = new Type(Type.LLONG);
 __gshared Type floatType  = new Type(Type.FLOAT);
 __gshared Type doubleType = new Type(Type.DOUBLE);
 
-/// Creates and returns a RecType.
-RecType makeStrucType(T...)(string strucName)
+/// Helper for iterating record fields.
+/// [funct] accepts as params the type of the field, 
+/// and the name of the field.
+private void iterFields(T...)(
+    void delegate(typeof(T[0]), typeof(T[1])) funct
+)
 {
     static assert((T.length & 0x1) == 0);
-    
-    alias F = RecType.Field;            // Field constructor.
-    alias FV = void delegate(typeof(T[0]), typeof(T[1]));   // Field visitor.
 
-    void iteration(FV funct)
+    foreach (i, t; T)
     {
-        foreach (i, t; T)
+        static if ((i & 0x1) == 0)
         {
-            static if ((i & 0x1) == 0)
-            {
-                static assert(is (typeof(t) : Type), "Expect \"Type\"");
-                static assert(is (typeof(T[i + 1]) == string), "Expect field name as a string");
+            static assert(is (typeof(t) : Type), "Expect \"Type\"");
+            static assert(is (typeof(T[i + 1]) == string), "Expect field name as a string");
 
-                funct(t, T[i + 1]);
-            }
-            else
-            {
-                // Do nothing.
-            }
+            funct(t, T[i + 1]);
+        }
+        else
+        {
+            // Do nothing.
         }
     }
+}
+
+/// Creates and returns a RecType.
+/// Example usage:
+///
+/// auto fooStrucType = makeStrucType!(
+///     intType, "foo",
+///     longType, "bar"
+/// )("fooStrucType");
+///
+/// This function calculates alignments and assigns
+/// an offset to each member field.
+RecType makeStrucType(T...)(string strucName)
+{
+    // Field constructor.
+    alias F = RecType.Field;
 
     // Find alignment.
     ulong alig = 0;
-    iteration((t, _)
+    iterFields!T((t, _)
     {
         if (t.typeSize() > alig)
             alig = t.typeSize();
@@ -351,7 +375,7 @@ RecType makeStrucType(T...)(string strucName)
     auto fields = appender!(F[]);
     ulong offset = 0;
     ulong size = 0;
-    iteration((t, name)
+    iterFields!T((t, name)
     {
         if (size + t.typeSize() < alig)
         {
@@ -378,6 +402,21 @@ RecType makeStrucType(T...)(string strucName)
     return new RecType(strucName, fields.data);
 }
 
+/// Same as makeStrucType, for union type.
+RecType makeUnionType(T...)(string unionName)
+{
+    // Field constructor.
+    alias F = RecType.Field;
+    auto fields = appender!(F[]);
+
+    iterFields!T((t, name)
+    {
+        fields.put(F(t, name, 0));
+    });
+
+    return new RecType(unionName, fields.data, true);
+}
+
 unittest
 {
     RecType fooStrucType = makeStrucType!(
@@ -385,12 +424,25 @@ unittest
         longType, "bar"
     )("fooStruc");
 
+    assert(fooStrucType.isUnion == false);
+    assert(fooStrucType.typeSize == 16);
     assert(fooStrucType.members[0].type == intType);
     assert(fooStrucType.members[0].offset == 0);
     assert(fooStrucType.members[0].name == "foo");
     assert(fooStrucType.members[1].type == longType);
     assert(fooStrucType.members[1].offset == 8);
     assert(fooStrucType.members[1].name == "bar");
+
+    RecType barUnionType = makeUnionType!(
+        longType, "foo",
+        intType, "bar"
+    )("barUnion");
+    assert(barUnionType.isUnion);
+    assert(barUnionType.typeSize == 8);
+    assert(barUnionType.members[0].type == longType);
+    assert(barUnionType.members[0].offset == 0);
+    assert(barUnionType.members[1].type == intType);
+    assert(barUnionType.members[1].offset == 0);
 }
 
 unittest
