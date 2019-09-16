@@ -89,10 +89,10 @@ class FloatExpr : Expr
 class StringExpr : Expr
 {
     /// Constant value.
-    wstring value;
+    string value;
 
     /// Constructor.
-    this(wstring val, SrcLoc loc)
+    this(string val, SrcLoc loc)
     {
         // String literal is const char*
         super(new Type(Type.PTR, charType), loc);
@@ -104,14 +104,14 @@ class StringExpr : Expr
 class IdentExpr : Expr
 {
     /// Name of the identifier.
-    wstring name;
+    string name;
 
     /// Whether this identifier refers to a global
     /// declaration.
     bool isGlobal;
 
     /// Constructor
-    this(Type type, wstring name, bool isGlobal, SrcLoc loc)
+    this(Type type, string name, bool isGlobal, SrcLoc loc)
     {
         assert(name !is null);
         super(type, loc);
@@ -193,10 +193,10 @@ class MemberExpr : Expr
     Expr struc;
 
     /// Member name.
-    wstring name;
+    string name;
 
     /// Constructor.
-    this(Expr struc, wstring name, SrcLoc loc)
+    this(Expr struc, string name, SrcLoc loc)
     {
         assert(struc !is null);
         assert(name !is null);
@@ -212,7 +212,7 @@ class MemberExpr : Expr
 class CallExpr : Expr
 {
     /// Expr that represents the callee.
-    wstring callee;
+    string callee;
 
     /// Args passed to this call.
     Expr[] args;
@@ -220,7 +220,7 @@ class CallExpr : Expr
     /// Constructor.
     /// [funcType] - A function type.
     /// [callee] - Func name.
-    this(Type funcType, wstring callee, Expr[] args, SrcLoc loc)
+    this(Type funcType, string callee, Expr[] args, SrcLoc loc)
     {
         assert(funcType.kind == Type.FUNC);
         assert(callee !is null);
@@ -237,7 +237,7 @@ class BinExpr : Expr
     /// Operator.
     /// Because binary operators are all infix operators,
     /// we need not use an enum.
-    wstring op;
+    string op;
 
     /// Left-hand side.
     Expr lhs;
@@ -246,7 +246,7 @@ class BinExpr : Expr
     Expr rhs;
 
     /// Constructor.
-    this(Type resType, wstring op, Expr lhs, Expr rhs, SrcLoc loc)
+    this(Type resType, string op, Expr lhs, Expr rhs, SrcLoc loc)
     {
         assert(resType !is null);
         assert(op !is null);
@@ -263,7 +263,7 @@ class BinExpr : Expr
 class AssignExpr : Expr
 {
     /// Operator.
-    wstring op;
+    string op;
 
     /// An lvalue.
     Expr lhs;
@@ -272,7 +272,7 @@ class AssignExpr : Expr
     Expr rhs;
 
     /// Constructor.
-    this(Type resType, wstring op, Expr lhs, Expr rhs, SrcLoc loc)
+    this(Type resType, string op, Expr lhs, Expr rhs, SrcLoc loc)
     {
         assert(lhs !is null && rhs !is null);
         assert(lhs.type == resType);
@@ -296,10 +296,10 @@ class AssignExpr : Expr
 class FuncExpr : Expr
 {
     /// The name of the function.
-    wstring name;
+    string name;
 
     /// Constructor.
-    this(Type type, wstring name, SrcLoc loc)
+    this(Type type, string name, SrcLoc loc)
     {
         assert(type !is null);
         assert(name !is null);

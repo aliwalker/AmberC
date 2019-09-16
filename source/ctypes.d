@@ -91,7 +91,7 @@ class Type
 class RecType : Type
 {
     /// Name of the struct.
-    wstring name;
+    string name;
 
     /// Field type.
     struct Field {
@@ -99,7 +99,7 @@ class RecType : Type
         Type type;
 
         /// Name of the field.
-        wstring name;
+        string name;
 
         /// Offset from the beginning address.
         size_t offset;
@@ -112,7 +112,7 @@ class RecType : Type
     Field[] members;
 
     /// Constructor.
-    this(wstring name, Field[] members, bool isUnion = false)
+    this(string name, Field[] members, bool isUnion = false)
     {
         super(COMP);
 
@@ -135,7 +135,7 @@ class RecType : Type
 
     override size_t toHash() const
     {
-        size_t hash = name.toHash();
+        size_t hash = 1;
         
         foreach (m; members)
         {
@@ -313,10 +313,84 @@ __gshared Type ullongType = new Type(Type.LLONG);
 __gshared Type floatType  = new Type(Type.FLOAT);
 __gshared Type doubleType = new Type(Type.DOUBLE);
 
-/// Creates and returns a struct type.
-RecType makeStructType(T...)(T members)
+/// Creates and returns a RecType.
+RecType makeStrucType(T...)(string strucName)
 {
-    assert(members);
+    static assert((T.length & 0x1) == 0);
+    
+    alias F = RecType.Field;            // Field constructor.
+    alias FV = void delegate(typeof(T[0]), typeof(T[1]));   // Field visitor.
+
+    void iteration(FV funct)
+    {
+        foreach (i, t; T)
+        {
+            static if ((i & 0x1) == 0)
+            {
+                static assert(is (typeof(t) : Type), "Expect \"Type\"");
+                static assert(is (typeof(T[i + 1]) == string), "Expect field name as a string");
+
+                funct(t, T[i + 1]);
+            }
+            else
+            {
+                // Do nothing.
+            }
+        }
+    }
+
+    // Find alignment.
+    ulong alig = 0;
+    iteration((t, _)
+    {
+        if (t.typeSize() > alig)
+            alig = t.typeSize();
+    });
+
+    // Construct fields.
+    auto fields = appender!(F[]);
+    ulong offset = 0;
+    ulong size = 0;
+    iteration((t, name)
+    {
+        if (size + t.typeSize() < alig)
+        {
+            size += t.typeSize();
+        }
+
+        // Clear size.
+        else if (size + t.typeSize() == alig)
+        {
+            size = 0;
+        }
+
+        // Add padding.
+        else
+        {
+            offset += alig - size;
+            size = t.typeSize();
+        }
+
+        fields.put(F(t, name, offset));
+        offset += t.typeSize();
+    });
+
+    return new RecType(strucName, fields.data);
+}
+
+unittest
+{
+    RecType fooStrucType = makeStrucType!(
+        intType, "foo",
+        longType, "bar"
+    )("fooStruc");
+
+    assert(fooStrucType.members[0].type == intType);
+    assert(fooStrucType.members[0].offset == 0);
+    assert(fooStrucType.members[0].name == "foo");
+    assert(fooStrucType.members[1].type == longType);
+    assert(fooStrucType.members[1].offset == 8);
+    assert(fooStrucType.members[1].name == "bar");
 }
 
 unittest
@@ -336,7 +410,7 @@ unittest
         RecType.Field(longPtr, "foo", 0),
         RecType.Field(intType, "bar", 8),
     ]);
-    Type struc3 = new RecType([
+    Type struc3 = new RecType("foo2Struc", [
         RecType.Field(longPtr, "foo2", 0),
         RecType.Field(intType, "bar2", 8),
     ]);
@@ -349,4 +423,5 @@ unittest
     Type intarr2 = new ArrayType(intType, 10);
     assert(intarr == intarr2);
     assert(intarr.toHash() == intarr2.toHash());
+    static assert(is (typeof(intPtr) : Type));
 }
