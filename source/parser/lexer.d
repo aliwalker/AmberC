@@ -571,6 +571,7 @@ LexingResult lexStream(ref CharStream chars)
                 break;
             }
 
+            // FIXME: This can throw for overflowing.
             long val;
             formattedRead(m.captures[0], "%x", &val);
 
@@ -604,6 +605,7 @@ LexingResult lexStream(ref CharStream chars)
             // An actual octal number.
             if (!m.empty)
             {
+                // FIXME: This can throw.
                 auto octStr = m.captures[0];
                 formattedRead(octStr, "%o", &val);
             }
@@ -825,14 +827,18 @@ struct TokenStream
     /// Current index.
     size_t idx;
 
+    /// File name for the stream.
+    string filename;
+
     /// Constructor.
     this(string code, string filename)
     {
         auto chars = CharStream(code, filename);
         auto res = lexStream(chars);
         
-        errors = res.errors;
-        tokens = res.tokens;
+        this.filename = filename;
+        this.errors = res.errors;
+        this.tokens = res.tokens;
     }
 
     /// Peek without consuming a token.
