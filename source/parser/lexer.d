@@ -163,6 +163,12 @@ struct Token
         char charVal;
     }
 
+    /// Integer suffix.
+    string intsfx;
+
+    /// FP suffix.
+    string fsfx;
+
     /// Position of this token.
     SrcPos pos;
 
@@ -174,12 +180,26 @@ struct Token
         this.pos = pos;
     }
 
+    /// Integer with suffix.
+    this(Kind kind, long value, string sfx, SrcPos pos)
+    {
+        this(kind, value, pos);
+        this.intsfx = sfx;
+    }
+
     /// FP.
     this(Kind kind, double value, SrcPos pos) {
         assert(kind == FLOAT, "Expect floating point value");
         this.kind = kind;
         this.floatVal = value;
         this.pos = pos;
+    }
+
+    /// FP with suffix.
+    this(Kind kind, double value, string sfx, SrcPos pos)
+    {
+        this(kind, value, pos);
+        this.fsfx = sfx;
     }
 
     /// Char.
@@ -535,11 +555,15 @@ LexingResult lexStream(ref CharStream chars)
             break;
         }
 
+        enum sfxRegex = ctRegex!(`^[uUlL]+`);
+        enum fsfxRegex = ctRegex!(`^[fFlL]`);
+
         // Hex number.
         if (chars.match("0x"))
         {
             enum hexRegex = ctRegex!(`^[0-9|a-f|A-F]+`);
             auto m = chars.match(hexRegex);
+            auto sfxm = chars.match(sfxRegex);
 
             if (m.empty)
             {
@@ -549,11 +573,24 @@ LexingResult lexStream(ref CharStream chars)
 
             long val;
             formattedRead(m.captures[0], "%x", &val);
-            tokens.put(Token(
-                Token.INT,
-                val,
-                pos
-            ));
+
+            if (sfxm.empty)
+            {
+                tokens.put(Token(
+                    Token.INT,
+                    val,
+                    pos
+                ));
+            }
+            else
+            {
+                tokens.put(Token(
+                    Token.INT,
+                    val,
+                    sfxm.captures[0],
+                    pos
+                ));
+            }
         }
 
         // Octal number or 0.
@@ -561,6 +598,7 @@ LexingResult lexStream(ref CharStream chars)
         {
             enum octRegex = ctRegex!(`^0([0-7]+)`);
             auto m = chars.match(octRegex);
+            auto sfxm = chars.match(sfxRegex);
 
             long val = 0;
             // An actual octal number.
@@ -576,11 +614,23 @@ LexingResult lexStream(ref CharStream chars)
                 chars.read();
             }
 
-            tokens.put(Token(
-                Token.INT,
-                val,
-                pos
-            ));
+            if (sfxm.empty)
+            {
+                tokens.put(Token(
+                    Token.INT,
+                    val,
+                    pos
+                ));
+            }
+            else
+            {
+                tokens.put(Token(
+                    Token.INT,
+                    val,
+                    sfxm.captures[0],
+                    pos
+                ));
+            }
         }
 
         // Decimal int or floating point number.
@@ -595,22 +645,40 @@ LexingResult lexStream(ref CharStream chars)
             const isFloat = (m.captures[1] == "") ? false : true;
             if (isFloat)
             {
+                auto sfxm = chars.match(fsfxRegex);
                 const val = to!double(m.captures[0]);
-                tokens.put(Token(
-                    Token.FLOAT,
-                    val,
-                    pos
-                ));
+                tokens.put(sfxm.empty
+                    ? Token(
+                        Token.FLOAT,
+                        val,
+                        pos
+                    )
+                    : Token(
+                        Token.FLOAT,
+                        val,
+                        sfxm.captures[0],
+                        pos
+                    )
+                );
             }
 
             else
             {
+                auto sfxm = chars.match(sfxRegex);
                 const val = to!long(m.captures[0]);
-                tokens.put(Token(
-                    Token.INT,
-                    val,
-                    pos
-                ));
+                tokens.put(sfxm.empty 
+                    ? Token(
+                        Token.INT,
+                        val,
+                        pos
+                    )
+                    : Token(
+                        Token.INT,
+                        val,
+                        sfxm.captures[0],
+                        pos
+                    )
+                );
             }
         }
 
@@ -619,14 +687,23 @@ LexingResult lexStream(ref CharStream chars)
         {
             enum fpRegex = ctRegex!(`^\.[0-9]+`);
             auto m = chars.match(fpRegex);
+            auto sfxm = chars.match(fsfxRegex);
 
             assert(!m.empty);
             const val = to!double(m.captures[0]);
-            tokens.put(Token(
-                Token.FLOAT,
-                val,
-                pos
-            ));
+            tokens.put(sfxm.empty
+                ? Token(
+                    Token.FLOAT,
+                    val,
+                    pos
+                )
+                : Token(
+                    Token.FLOAT,
+                    val,
+                    sfxm.captures[0],
+                    pos
+                )
+            );
         }
 
         // Character literal.
@@ -825,8 +902,17 @@ unittest {
             {
             case Token.INT: 
                 assert(
-                    etok.intVal == tok.intVal,
+                    etok.intVal == tok.intVal &&
+                    etok.intsfx == tok.intsfx,
                     format("expected %s to equal %s", tok.intVal, etok.intVal)
+                );
+                break;
+
+            case Token.FLOAT:
+                assert(
+                    etok.floatVal == tok.floatVal &&
+                    etok.fsfx == tok.fsfx,
+                    format("expected %s to equal to %s", tok.floatVal, etok.floatVal)
                 );
                 break;
             
@@ -919,13 +1005,40 @@ unittest {
         ]
     );
 
-    // 0.
+    // 0
     testValidCode(
         "0; ident",
         [
             Token(Token.INT, 0L, SrcPos()),
             Token(Token.SEP, ";", SrcPos()),
             Token(Token.IDENT, "ident", SrcPos()),
+            Token(SrcPos()),
+        ]
+    );
+
+    /// Integer suffix.
+    testValidCode(
+        "10L",
+        [
+            Token(Token.INT, 10L, "L", SrcPos()),
+            Token(SrcPos()),
+        ]
+    );
+
+    /// FP suffix.
+    testValidCode(
+        "10.23L",
+        [
+            Token(Token.FLOAT, 10.23L, "L", SrcPos()),
+            Token(SrcPos()),
+        ]
+    );
+
+        /// FP suffix.
+    testValidCode(
+        ".23L",
+        [
+            Token(Token.FLOAT, 0.23L, "L", SrcPos()),
             Token(SrcPos()),
         ]
     );

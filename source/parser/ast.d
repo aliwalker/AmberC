@@ -103,15 +103,15 @@ class StringExpr : Expr
 /// Represents an identifier. E.g. foo, bar
 class IdentExpr : Expr
 {
-    /// Name of the identifier.
-    string name;
+    /// The resolved Decl.
+    VarDecl name;
 
     /// Whether this identifier refers to a global
     /// declaration.
     bool isGlobal;
 
     /// Constructor
-    this(Type type, string name, bool isGlobal, SrcLoc loc)
+    this(Type type, VarDecl name, bool isGlobal, SrcLoc loc)
     {
         assert(type !is null);
         assert(name !is null);
@@ -512,17 +512,20 @@ class CompStmt : Stmt
 /// Represents a variable declaration.
 class VarDecl : Node
 {
-    /// Name being declared. Use AST Node here because
-    /// IdentExpr contains type and local/global info.
-    IdentExpr name;
+    /// Name being declared.
+    string name;
+
+    /// Type of the var being declared.
+    Type type;
 
     /// Initial values.
     /// Use array type because this VarDecl might declare an array.
     InitExpr[] initVals;
 
     /// Constructor.
-    this(IdentExpr name, InitExpr[] initVals, SrcLoc loc)
+    this(Type type, string name, InitExpr[] initVals, SrcLoc loc)
     {
+        assert(type !is null);
         assert(name !is null);
 
         super(loc);
@@ -531,31 +534,34 @@ class VarDecl : Node
     }
 
     /// Constructor. Single InitExpr.
-    this(IdentExpr name, InitExpr initVal, SrcLoc loc)
+    this(Type type, string name, InitExpr initVal, SrcLoc loc)
     {
-        this(name, [initVal], loc);
+        this(type, name, [initVal], loc);
     }
 
     /// Whether the variable being declared is of type T.
     bool isofType(T)() const
     {
-        static assert(is (T : type));
-        return (cast(T)(name.type) !is null);
+        static assert(is (T : Type));
+
+        return (cast(T)(type) !is null);
     }
 }
 
 /// Represents a function declaration.
 class FuncDecl : Node
 {
-    /// Name bing declared. Use AST Node here because
-    /// IdentExpr contains type and local/global info.
-    IdentExpr name;
+    /// Function name.
+    string name;
+
+    /// Type of the function.
+    Type type;
 
     /// Statements within function body.
     Stmt[] body;
 
     /// Constructor.
-    this(IdentExpr name, Stmt[] body, SrcLoc loc)
+    this(Type type, string name, Stmt[] body, SrcLoc loc)
     {
         assert(name !is null);
 
