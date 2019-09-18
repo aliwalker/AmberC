@@ -1,34 +1,12 @@
 ///     This file contains semantic utilities
 ///     Copyright 2019 Yiyong Li.
 
-module parser.sema;
+module sema.expr;
 
 import std.format;
 import parser.ctypes;
 import parser.ast;
-
-/// Environment. Roughly the same as "scope".
-class Env
-{
-    /// Enclosing env. Each env except the global env
-    /// has a parent.
-    Env parent;
-
-    /// Variable declarations within this env.
-    VarDecl[string] names;
-
-    /// Constructor.
-    this(Env parent) {
-        this.parent = parent;
-    }
-}
-
-/// A chain of Env objects. 
-Env envs;
-static this()
-{
-    envs = new Env(null);
-}
+import sema.env;
 
 private const int SVR_ERR = 1;
 private const int SVR_WARN = 2;
@@ -38,37 +16,16 @@ private void semaReport(int svr, string msg, SrcLoc loc)
     // TODO.
 }
 
-/// Resolve [name] from environments and return
-/// the declaration that corresponds to it. Return
-/// null if [name] is not found. 
-VarDecl resolveName(string name, out bool local)
-{
-    auto curenv = envs;
-
-    while (curenv !is null)
-    {
-        if (name in curenv.names)
-        {
-            local = curenv.parent !is null;
-            return curenv.names[name];
-        }
-
-        curenv = curenv.parent;
-    }
-    return null;
-}
-
 /// Semantic action on identier. 
 IdentExpr semaIdent(string name, SrcLoc loc)
 {
-    auto local = true;
-    auto decl = resolveName(name, local);
+    auto decl = envResolv(name);
 
     if (decl !is null)
     {
         semaReport(SVR_ERR, format!"name '%s' cannot resolve!"(name), loc);
     }
-    return new IdentExpr(decl.type, decl, !local, loc);
+    return new IdentExpr(decl, loc);
 }
 
 /// Truncate [val] if it overflows.

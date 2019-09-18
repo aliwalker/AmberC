@@ -104,18 +104,15 @@ class StringExpr : Expr
 class IdentExpr : Expr
 {
     /// The resolved Decl.
-    VarDecl name;
-
-    /// Whether this identifier refers to a global
-    /// declaration.
-    bool isGlobal;
+    Decl name;
 
     /// Constructor
-    this(Type type, VarDecl name, bool isGlobal, SrcLoc loc)
+    this(Decl name, SrcLoc loc)
     {
-        assert(type !is null);
+        /// Declaration before usage.
         assert(name !is null);
-        super(type, loc);
+
+        super(name.type, loc);
         this.name = name;
     }
 }
@@ -509,15 +506,30 @@ class CompStmt : Stmt
 * Declaration.
 */
 
-/// Represents a variable declaration.
-class VarDecl : Node
+/// Base class that represents a declaration.
+class Decl : Node
 {
-    /// Name being declared.
-    string name;
-
-    /// Type of the var being declared.
+    /// Type of [name] being declared.
     Type type;
 
+    /// Bound identifier.
+    string name;
+
+    /// Constructor.
+    this(Type type, string name, SrcLoc loc)
+    {
+        assert(type !is null);
+        assert(name !is null);
+
+        super(loc);
+        this.type = type;
+        this.name = name;
+    }
+}
+
+/// Represents a variable declaration.
+class VarDecl : Decl
+{
     /// Initial values.
     /// Use array type because this VarDecl might declare an array.
     InitExpr[] initVals;
@@ -525,11 +537,7 @@ class VarDecl : Node
     /// Constructor.
     this(Type type, string name, InitExpr[] initVals, SrcLoc loc)
     {
-        assert(type !is null);
-        assert(name !is null);
-
-        super(loc);
-        this.name = name;
+        super(type, name, loc);
         this.initVals = initVals;
     }
 
@@ -549,24 +557,15 @@ class VarDecl : Node
 }
 
 /// Represents a function declaration.
-class FuncDecl : Node
+class FuncDecl : Decl
 {
-    /// Function name.
-    string name;
-
-    /// Type of the function.
-    Type type;
-
     /// Statements within function body.
     Stmt[] body;
 
     /// Constructor.
     this(Type type, string name, Stmt[] body, SrcLoc loc)
     {
-        assert(name !is null);
-
-        super(loc);
-        this.name = name;
+        super(type, name, loc);
         this.body = body;
     }
 
