@@ -26,9 +26,9 @@ class Type
         FLOAT,
         DOUBLE,
         // ENUM,
-        /// Composite types:
+        /// Derived types:
         /// array, record, function, ptr.
-        COMP,
+        DERV,
     }
     Kind kind;
 
@@ -46,7 +46,7 @@ class Type
             kind == FLOAT   ||
             kind == DOUBLE  ||
             // kind == ENUM    ||
-            kind == COMP
+            kind == DERV
         );
         this.kind = kind;
     }
@@ -113,7 +113,7 @@ class RecType : Type
     /// Constructor.
     this(string name, Field[] members, bool isUnion = false)
     {
-        super(COMP);
+        super(DERV);
 
         this.name = name;
         this.members = members;
@@ -185,7 +185,7 @@ class FuncType : Type
     /// Constructor.
     this(Type retType, Type[] params)
     {
-        super(COMP);
+        super(DERV);
 
         this.retType = retType;
         this.params = params;
@@ -239,7 +239,7 @@ class ArrayType : Type
     /// Constructor.
     this(Type elemTy, size_t size)
     {
-        super(COMP);
+        super(DERV);
 
         this.elemTy = elemTy;
         this.size = size;
@@ -278,7 +278,7 @@ class PtrType : Type
     /// Constructor.
     this(Type base)
     {
-        super(COMP);
+        super(DERV);
 
         this.base = base;
     }
@@ -290,7 +290,7 @@ class PtrType : Type
 
     override size_t toHash() const
     {
-        return base.toHash() * COMP;
+        return base.toHash() * DERV;
     }
 
     override bool opEquals(Object other) const
