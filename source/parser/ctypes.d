@@ -198,6 +198,19 @@ class RecType : Type
         }
         return true;
     }
+
+    override string toString() const
+    {
+        string tystr = (isUnion ? "union(" : "struct(") ~ name ~ ")(";
+
+        foreach (i, m; members)
+        {
+            tystr ~= (i == members.length - 1)
+                ? m.type.toString
+                : m.type.toString ~ ",";
+        }
+        return tystr ~ ")";
+    }
 }
 
 /// Function type.
@@ -548,5 +561,15 @@ unittest
     auto funcTy = new FuncType(voidType, [intPtrTy]);
     assert(funcTy.toString == "void(*)(int*)");
 
-    
+    /// RecType.
+    auto fooStrucTy = makeStrucType!(
+        intType, "foo",
+        longType, "bar"
+    )("fooStruc");
+    assert(fooStrucTy.toString == "struct(fooStruc)(int,long)");
+    auto barUnionTy = makeUnionType!(
+        intType, "foo",
+        longType, "bar"
+    )("barUnion");
+    assert(barUnionTy.toString == "union(barUnion)(int,long)");
 }
