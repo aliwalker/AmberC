@@ -7,13 +7,21 @@ import std.format;
 import parser.ctypes;
 import parser.ast;
 import sema.env;
+import reporter;
 
-private const int SVR_ERR = 1;
-private const int SVR_WARN = 2;
-private const int SVR_INFO = 3; 
-private void semaReport(int svr, string msg, SrcLoc loc)
+/// Semantic action on array access.
+UnaryExpr semaArrayDeref(Expr base, Expr idx)
 {
-    // TODO.
+    if ((cast(ArrayType)base.type) !is null)
+    {
+        //auto decay = new UnaryExpr(UnaryExpr.DECAY, )
+    }
+}
+
+/// Semantic action on call expression.
+CallExpr semaCall(Expr callee, Expr[] args)
+{
+
 }
 
 /// Semantic action on identier. 
@@ -23,25 +31,40 @@ IdentExpr semaIdent(string name, SrcLoc loc)
 
     if (decl !is null)
     {
-        semaReport(SVR_ERR, format!"name '%s' cannot resolve!"(name), loc);
+        report(SVR_ERR, format!"name '%s' cannot resolve!"(name), loc);
     }
     return new IdentExpr(decl, loc);
 }
 
-/// Truncate [val] if it overflows.
-private void trunc(T, N)(T min, T max, ref N val, SrcLoc loc)
+/// Truncate a signed [val] if it overflows.
+/// [S] stands for signed-type. [U] stands for unsigned
+/// type with the same size as [S].
+private void trunc(S, U, N)(ref N val, SrcLoc loc)
 {
-    static assert(__traits(isIntegral, T));
+    static assert(__traits(isIntegral, S));
+    static assert(__traits(isIntegral, U));
     static assert(__traits(isIntegral, N));
 
-    if (val > min || val < max)
+    // Overflow.
+    if (val < S.min || val > S.max)
     {
-        semaReport(
+        report(
             SVR_WARN, 
-            format!"%s gets truncated to %s"(val, max & val),
+            format!"%s gets implicitly converted to %s"(val, cast(S)val),
             loc
         );
-        val = max & val;
+        val = cast(S)val;
+    }
+
+    // Greater than the unsigned version can represent.
+    else if (val > U.max)
+    {
+        report(
+            SVR_WARN, 
+            format!"%s gets truncated to %s"(val, S.max & val),
+            loc
+        );
+        val = S.max & val;
     }
 }
 
@@ -52,7 +75,7 @@ IntExpr semaInt(long val, string sfx, SrcLoc loc)
     {
         case "":
             // Truncate overflow.
-            trunc!(int, long)(int.min, int.max, val, loc);
+            trunc!(int, uint, long)(val, loc);
             return new IntExpr(intType, val, loc);
 
         // FIXME: for now assume these are fine.
@@ -65,7 +88,7 @@ IntExpr semaInt(long val, string sfx, SrcLoc loc)
             return new IntExpr(ullongType, val, loc);
 
         default:
-            semaReport(
+            report(
                 SVR_ERR, 
                 format!"Unknown suffix for integer: %s"(val), 
                 loc
@@ -83,7 +106,7 @@ FloatExpr semaFloat(double val, string sfx, SrcLoc loc)
         case "f", "F", "":  return new FloatExpr(floatType, val, loc);
         case "l", "L":      return new FloatExpr(doubleType, val, loc);
         default:
-            semaReport(
+            report(
                 SVR_ERR,
                 format!"Unknown suffix for floating literal: %s"(val),
                 loc

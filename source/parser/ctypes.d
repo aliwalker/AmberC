@@ -4,10 +4,17 @@
 module parser.ctypes;
 
 import std.stdio;
+import std.stdint;
 import std.array;
+import std.format;
 
 /// Size of a pointer.
 const PTR_SIZE = 8;
+
+/// Const qualifier.
+const uint8_t QUAL_CONST = 1;
+/// Register qualifier.
+const uint8_t QUAL_REG = 2;
 
 /// Base type.
 class Type
@@ -83,6 +90,26 @@ class Type
             return false;
 
         return kind == otherTy.kind;
+    }
+
+    override string toString() const
+    {
+        switch (kind)
+        {
+            case VOID:      return "void";
+            case BOOL_:     return "Bool_";
+            case CHAR:      return "char";
+            case SHORT:     return "short";
+            case INT:       return "int";
+            case LONG:      return "long";
+            case LLONG:     return "long long";
+            case FLOAT:     return "float";
+            case DOUBLE:    return "double";
+            // case ENUM:
+            case DERV:      return "derived";
+            default:
+                return "";
+        }
     }
 }
 
@@ -225,6 +252,19 @@ class FuncType : Type
 
         return true;
     }
+
+    override string toString() const
+    {
+        string tystr = retType.toString() ~ "(*)(";
+
+        foreach (i, p; params)
+        {
+            tystr ~= (i == (params.length - 1))
+                ? p.toString()
+                : p.toString() ~ ",";
+        }
+        return tystr ~ ")";
+    }
 }
 
 /// Array type.
@@ -267,6 +307,11 @@ class ArrayType : Type
 
         return true;
     }
+
+    override string toString() const
+    {
+        return format!"%s[%s]"(elemTy.toString, size);
+    }
 }
 
 /// Pointer type.
@@ -305,6 +350,11 @@ class PtrType : Type
 
         return true;
     }
+
+    override string toString() const
+    {
+        return base.toString() ~ "*";
+    }
 }
 
 /// Primitive types
@@ -322,6 +372,11 @@ __gshared Type ulongType  = new Type(Type.LONG);
 __gshared Type ullongType = new Type(Type.LLONG);
 __gshared Type floatType  = new Type(Type.FLOAT);
 __gshared Type doubleType = new Type(Type.DOUBLE);
+
+/// Type stores.
+private FuncType[string] functypes;
+private ArrayType[string] arrayTypes;
+private PtrType[string] ptrTypes;
 
 /// Helper for iterating record fields.
 /// [funct] accepts as params the type of the field, 
@@ -476,4 +531,22 @@ unittest
     assert(intarr == intarr2);
     assert(intarr.toHash() == intarr2.toHash());
     static assert(is (typeof(intPtr) : Type));
+}
+
+/// Test toString
+unittest
+{
+    assert(intType.toString == "int");
+
+    /// PtrType.
+    auto intPtrTy = new PtrType(intType);
+    assert(intPtrTy.toString == "int*");
+    auto intPtrPtrTy = new PtrType(intPtrTy);
+    assert(intPtrPtrTy.toString == "int**");
+
+    /// FuncType.
+    auto funcTy = new FuncType(voidType, [intPtrTy]);
+    assert(funcTy.toString == "void(*)(int*)");
+
+    
 }

@@ -5,6 +5,7 @@ module parser.ast;
 
 import std.format;
 import std.conv;
+import std.stdint;
 import parser.ctypes;
 import parser.lexer : SrcPos;
 
@@ -15,6 +16,11 @@ struct SrcLoc
     SrcPos  pos;
     /// Name of the source file.
     string  filename;
+
+    string toString() const
+    {
+        return format!"%s:%s:%s:"(filename, pos.line, pos.col);
+    }
 }
 
 /// Base class for all AST node types.
@@ -509,6 +515,9 @@ class CompStmt : Stmt
 /// Base class that represents a declaration.
 class Decl : Node
 {
+    /// Qualifier.
+    uint8_t qual;
+
     /// Type of [name] being declared.
     Type type;
 
@@ -524,6 +533,13 @@ class Decl : Node
         super(loc);
         this.type = type;
         this.name = name;
+    }
+
+    /// Qualified type.
+    this(uint8_t qual, Type type, string name, SrcLoc loc)
+    {
+        this(type, name, loc);
+        this.qual = qual;
     }
 }
 
