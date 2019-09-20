@@ -30,6 +30,11 @@ class Type
         INT,
         LONG,
         LLONG,
+        UCHAR,
+        USHORT,
+        UINT,
+        ULONG,
+        ULLONG,
         FLOAT,
         DOUBLE,
         // ENUM,
@@ -50,6 +55,11 @@ class Type
             kind == INT     ||
             kind == LONG    ||
             kind == LLONG   ||
+            kind == UCHAR   ||
+            kind == USHORT  ||
+            kind == UINT    ||
+            kind == ULONG   ||
+            kind == ULLONG  ||
             kind == FLOAT   ||
             kind == DOUBLE  ||
             // kind == ENUM    ||
@@ -104,6 +114,11 @@ class Type
             case LONG:      return "long";
             case LLONG:     return "long long";
             case FLOAT:     return "float";
+            case UCHAR:     return "unsigned char";
+            case USHORT:    return "unsigned short";
+            case UINT:      return "unsigned";
+            case ULONG:     return "unsigned long";
+            case ULLONG:    return "unsigned long long";
             case DOUBLE:    return "double";
             // case ENUM:
             case DERV:      return "derived";
@@ -378,18 +393,123 @@ __gshared Type shortType  = new Type(Type.SHORT);
 __gshared Type intType    = new Type(Type.INT);
 __gshared Type longType   = new Type(Type.LONG);
 __gshared Type llongType  = new Type(Type.LLONG);
-__gshared Type ucharType  = new Type(Type.CHAR);
-__gshared Type ushortType = new Type(Type.SHORT);
-__gshared Type uintType   = new Type(Type.INT);
-__gshared Type ulongType  = new Type(Type.LONG);
-__gshared Type ullongType = new Type(Type.LLONG);
+__gshared Type ucharType  = new Type(Type.UCHAR);
+__gshared Type ushortType = new Type(Type.USHORT);
+__gshared Type uintType   = new Type(Type.UINT);
+__gshared Type ulongType  = new Type(Type.ULONG);
+__gshared Type ullongType = new Type(Type.ULLONG);
 __gshared Type floatType  = new Type(Type.FLOAT);
 __gshared Type doubleType = new Type(Type.DOUBLE);
 
-/// Type stores.
-private FuncType[string] functypes;
-private ArrayType[string] arrayTypes;
-private PtrType[string] ptrTypes;
+/// Derived type store.
+private Type[string] dvtypes;
+
+static this()
+{
+    // Create basic pointer types.
+    getPtrType(voidType  );
+    getPtrType(boolType  );
+    getPtrType(charType  );
+    getPtrType(shortType );
+    getPtrType(intType   );
+    getPtrType(longType  );
+    getPtrType(llongType );
+    getPtrType(ucharType );
+    getPtrType(ushortType);
+    getPtrType(uintType  );
+    getPtrType(ulongType );
+    getPtrType(ullongType);
+    getPtrType(floatType );
+    getPtrType(doubleType);
+}
+
+private T getType(T)(string tystr, T delegate() ctor)
+{
+    debug import std.stdio : writefln;
+
+    if (tystr in dvtypes)
+    {
+        auto ty = cast(T)(dvtypes[tystr]);
+        assert(ty !is null);
+
+        debug writefln(
+            "Get \"%s %s\" from base type \"%s\"", 
+            T.stringof, 
+            ty,
+            tystr
+        );
+        return ty;
+    }
+
+    auto ty = ctor();
+    dvtypes[tystr] = ty;
+
+    debug writefln(
+        "Added \"%s %s\" from base type \"%s\" ", 
+        T.stringof, 
+        ty,
+        tystr
+    );
+    return ty;
+}
+
+/// if [name] exists in [dvtypes], return it.
+/// Otherwise create an incomplete RecType for [name].
+RecType getRecType(string name, bool isUnion = false)
+{
+    return getType!(RecType)(
+        name,
+        { return new RecType(name, null, isUnion); });
+}
+
+RecType getRecType(T...)(string name, bool isUnion = false)
+{
+    auto ty = getRecType(name, isUnion);
+    
+    // Already complete.
+    if (ty.members !is null)
+    {
+        return ty;
+    }
+    // Create a complete version of it.
+    else
+    {
+        dvtypes.remove(name);
+        return getType!(RecType)(
+            name,
+            { return (isUnion ? makeUnionType!T(name) : makeStrucType!T(name)); });
+    }
+}
+
+/// Get or create an array type.
+ArrayType getArrayType(Type elemTy, size_t size)
+{
+    auto astr = new ArrayType(elemTy, size).toString();
+    
+    return getType!(ArrayType)(
+        astr,
+        { return new ArrayType(elemTy, size); });
+}
+
+/// Get or create a function type.
+FuncType getFuncType(Type retType, Type[] params)
+{
+    auto fstr = new FuncType(retType, params).toString();
+    
+    return getType!(FuncType)(
+        fstr, 
+        { return new FuncType(retType, params); });
+}
+
+/// Get or create a pointer type.
+PtrType getPtrType(Type base)
+{
+    auto bastr = base.toString();
+
+    return getType!(PtrType)(
+        bastr, 
+        { return new PtrType(base); });
+}
 
 /// Helper for iterating record fields.
 /// [funct] accepts as params the type of the field, 
@@ -426,7 +546,7 @@ private void iterFields(T...)(
 ///
 /// This function calculates alignments and assigns
 /// an offset to each member field.
-RecType makeStrucType(T...)(string strucName)
+private RecType makeStrucType(T...)(string strucName)
 {
     // Field constructor.
     alias F = RecType.Field;
@@ -471,7 +591,7 @@ RecType makeStrucType(T...)(string strucName)
 }
 
 /// Same as makeStrucType, for union type.
-RecType makeUnionType(T...)(string unionName)
+private RecType makeUnionType(T...)(string unionName)
 {
     // Field constructor.
     alias F = RecType.Field;
@@ -572,4 +692,27 @@ unittest
         longType, "bar"
     )("barUnion");
     assert(barUnionTy.toString == "union(barUnion)(int,long)");
+}
+
+/// Test getXXXType.
+unittest
+{
+    auto intPtrTy = getPtrType(intType);
+    assert(intPtrTy !is null);
+    assert(getPtrType(intType) == getPtrType(intType));
+
+    auto fooStrucTy = getRecType("fooStruc");
+    assert(fooStrucTy.members is null);
+    fooStrucTy = getRecType!(
+        intType, "foo",
+        longType, "bar"
+    )("fooStruc");
+    assert(fooStrucTy.members !is null);
+    assert(getRecType("fooStruc").members !is null);
+
+    auto fooStrucMems = getRecType("fooStruc").members;
+    assert(fooStrucMems[0].type == intType);
+    assert(fooStrucMems[0].name == "foo");
+    assert(fooStrucMems[1].type == longType);
+    assert(fooStrucMems[1].name == "bar");
 }

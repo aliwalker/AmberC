@@ -14,11 +14,11 @@ then
     for f in $PARSER_DIR/*.d
     do
         report $f
-        $RDC --main -unittest -I=$SOURCE_DIR $f
+        $RDC --main -unittest -debug -I=$SOURCE_DIR $f
     done
 else
     report "source/$TARGET"
-    $RDC --main -unittest -I=$SOURCE_DIR "source/$TARGET"
+    $RDC --main -unittest -debug -I=$SOURCE_DIR "source/$TARGET"
 fi
 
 echo "Tests finished."
