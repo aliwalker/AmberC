@@ -6,7 +6,7 @@ module parser.ast;
 import std.format;
 import std.conv;
 import std.stdint;
-import parser.ctypes;
+import parser.types;
 import parser.lexer : SrcPos;
 
 /// Represents the source location.

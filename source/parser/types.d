@@ -1,7 +1,7 @@
 ///     This file contains C type related utilities.
 ///     Copyright 2019 Yiyong Li.
 
-module parser.ctypes;
+module parser.types;
 
 import std.stdio;
 import std.stdint;
@@ -73,15 +73,15 @@ class Type
     {
         switch (kind)
         {
-            case VOID:     return 0;
-            case BOOL_:    return 1;
-            case CHAR:     return 1;
-            case SHORT:    return 2;
-            case INT:      return 4;
-            case LONG:     return 8;
-            case LLONG:    return 8;
-            case FLOAT:    return 4;
-            case DOUBLE:   return 8;
+            case VOID:            return 0;
+            case BOOL_:           return 1;
+            case CHAR, UCHAR:     return 1;
+            case SHORT, USHORT:   return 2;
+            case INT, UINT:       return 4;
+            case LONG, ULONG:     return 8;
+            case LLONG, ULLONG:   return 8;
+            case FLOAT:           return 4;
+            case DOUBLE:          return 8;
             default:
                 return -1;
         }
@@ -462,6 +462,7 @@ RecType getRecType(string name, bool isUnion = false)
         { return new RecType(name, null, isUnion); });
 }
 
+/// Get or create a complete RecType.
 RecType getRecType(T...)(string name, bool isUnion = false)
 {
     auto ty = getRecType(name, isUnion);
@@ -605,6 +606,7 @@ private RecType makeUnionType(T...)(string unionName)
     return new RecType(unionName, fields.data, true);
 }
 
+/// Test makeStrucType and makeUnionType.
 unittest
 {
     RecType fooStrucType = makeStrucType!(
@@ -633,6 +635,7 @@ unittest
     assert(barUnionType.members[1].offset == 0);
 }
 
+/// Test Type constructor.
 unittest
 {
     /// These should be equal.

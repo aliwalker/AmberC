@@ -4,7 +4,7 @@
 module sema.env;
 
 import parser.ast;
-import parser.ctypes;
+import parser.types;
 
 /// Environment. Roughly the same as "scope".
 class Env

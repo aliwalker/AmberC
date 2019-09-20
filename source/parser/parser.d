@@ -6,7 +6,7 @@ module parser.parser;
 import std.format;
 import parser.ast;
 import parser.lexer;
-import parser.ctypes;
+import parser.types;
 import sema.expr;
 import reporter;
 
@@ -58,7 +58,7 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
     Expr[] args;
 
     while (
-        (tok.kins == Token.SEP) &&
+        (tok.kind == Token.SEP) &&
         ((tok.stringVal == "(") || 
         (tok.stringVal == "["))
     )
@@ -119,7 +119,7 @@ Expr parsePrimary(ref TokenStream tokstr)
 ///     (type) { initalizer-list }  - compound literal.
 Expr parseParen(ref TokenStream tokstr)
 {
-    assert()
+    
 }
 
 /// Test parsePrimary.

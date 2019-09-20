@@ -4,7 +4,7 @@
 module sema.expr;
 
 import std.format;
-import parser.ctypes;
+import parser.types;
 import parser.ast;
 import sema.env;
 import reporter;
