@@ -12,10 +12,61 @@ import reporter;
 /// Semantic action on array access.
 UnaryExpr semaArrayDeref(Expr base, Expr idx)
 {
-    if ((cast(ArrayType)base.type) !is null)
+    auto arrayTy = cast(ArrayType)(base.type);
+    auto ptrTy = cast(PtrType)(base.type);
+    Type elemTy;
+
+    // When base is of ArrayType, decay array to pointer.
+    if (arrayTy !is null)
     {
-        //auto decay = new UnaryExpr(UnaryExpr.DECAY, )
+        auto elemPtrTy = getPtrType(arrayTy.elemTy);
+
+        elemTy = arrayTy.elemTy;
+        base = new UnaryExpr(
+            UnaryExpr.DECAY, 
+            elemPtrTy, 
+            base, 
+            base.loc);
     }
+
+    else if (ptrTy !is null)
+    {
+        elemTy = ptrTy.base;
+    }
+
+    else
+    {
+        report(
+            SVR_ERR,
+            "subscripted value is not an array or pointer",
+            idx.loc,
+        );
+    }
+
+    if (!isInteger(idx))
+    {
+        report(
+            SVR_ERR,
+            "array subscript is not an integer",
+            idx.loc
+        );
+    }
+
+    // TODO: semaBin
+    auto addrExpr = new BinExpr(
+        base.type, 
+        "+",
+        base,
+        idx,
+        base.loc
+    );
+
+    return new UnaryExpr(
+        UnaryExpr.DEREF,
+        elemTy,
+        addrExpr,
+        addrExpr.loc
+    );
 }
 
 /// Semantic action on call expression.
@@ -28,12 +79,14 @@ CallExpr semaCall(Expr callee, Expr[] args)
 IdentExpr semaIdent(string name, SrcLoc loc)
 {
     auto decl = envResolv(name);
+    auto ident = new IdentExpr(decl, loc);
 
-    if (decl !is null)
+    if (decl is null)
     {
-        report(SVR_ERR, format!"name '%s' cannot resolve!"(name), loc);
+        envUnresolv(name, ident);
     }
-    return new IdentExpr(decl, loc);
+
+    return ident;
 }
 
 /// Truncate a signed [val] if it overflows.

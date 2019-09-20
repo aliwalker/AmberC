@@ -128,6 +128,27 @@ class Type
     }
 }
 
+/// Helper for identifying integer type.
+bool isInteger(Type type)
+{
+    switch (type.kind)
+    {
+        case Type.CHAR:      return true;
+        case Type.SHORT:     return true;
+        case Type.INT:       return true;
+        case Type.LONG:      return true;
+        case Type.LLONG:     return true;
+        case Type.FLOAT:     return true;
+        case Type.UCHAR:     return true;
+        case Type.USHORT:    return true;
+        case Type.UINT:      return true;
+        case Type.ULONG:     return true;
+        case Type.ULLONG:    return true;
+        default:
+            return false;
+    }
+}
+
 /// Struct or Union type
 class RecType : Type
 {

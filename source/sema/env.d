@@ -3,8 +3,10 @@
 
 module sema.env;
 
+import std.format;
 import parser.ast;
 import parser.types;
+import reporter;
 
 /// Environment. Roughly the same as "scope".
 class Env
@@ -13,8 +15,11 @@ class Env
     /// has a parent.
     Env parent;
 
-    /// Variable declarations within this env.
+    /// Declarations within this env.
     Decl[string] names;
+
+    /// Unresolved identifiers.
+    IdentExpr[string] unresolved;
 
     /// Constructor.
     this(Env parent) {
@@ -53,6 +58,55 @@ Decl envResolv(string name)
     return null;
 }
 
+/// Add a declaration to current env.
+void envAddDecl(string name, Decl decl)
+{
+    auto curenv = envs;
+    auto vardecl = cast(VarDecl)decl;
+    auto fundecl = cast(FuncDecl)decl;
+
+    // Var
+    if (vardecl !is null)
+    {
+        if (name in curenv.names)
+        {
+            report(
+                SVR_ERR,
+                format!"redeclaration of name '%s'"(name),
+                decl.loc
+            );
+        }
+        else
+        {
+            curenv.names[name] = decl;
+        }
+    }
+    // Func
+    else
+    {
+        assert(fundecl !is null);
+
+        if (curenv != glenv && fundecl.isDefinition)
+        {
+            report(
+                SVR_ERR,
+                "function definition is not allowed here",
+                fundecl.loc
+            );
+        }
+
+        if (name in glenv.names)
+        {
+            auto prevdecl = glenv.names[name];
+            // TODO: compatible
+        }
+        else
+        {
+            glenv.names[name] = fundecl;
+        }
+    }
+}
+
 /// Same as [envResolv] except that this function
 /// resolves from [glenv] directly.
 Decl envGResolv(string name)
@@ -63,6 +117,18 @@ Decl envGResolv(string name)
     }
 
     return null;
+}
+
+/// Adds an unresolved global name.
+void envUnresolv(string name, IdentExpr ident)
+{
+    glenv.unresolved[name] = ident;
+}
+
+/// Whether [name] is an unresolved name.
+bool isUnresolved(string name)
+{
+    return (name in glenv.unresolved);
 }
 
 /// Return true if [decl] is a local declaration.

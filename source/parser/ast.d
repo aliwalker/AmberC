@@ -121,6 +121,18 @@ class IdentExpr : Expr
         super(name.type, loc);
         this.name = name;
     }
+
+    /// Is it a function designator?
+    bool isFuncDesg() const
+    {
+        return (cast(FuncDecl)name !is null);
+    }
+
+    /// Is it a variable reference?
+    bool isVaref() const
+    {
+        return (cast(VarDecl)name !is null);
+    }
 }
 
 /// Wrapper for unary expressions.
@@ -292,25 +304,6 @@ class AssignExpr : Expr
         super(resType, loc);
         this.lhs = lhs;
         this.rhs = rhs;
-    }
-}
-
-/// Represents a function desinator, which is an
-/// expression that has a function type.
-class FuncExpr : Expr
-{
-    /// The name of the function.
-    string name;
-
-    /// Constructor.
-    this(Type type, string name, SrcLoc loc)
-    {
-        assert(type !is null);
-        assert(name !is null);
-        assert(cast(FuncType)type !is null);
-
-        super(type, loc);
-        this.name = name;
     }
 }
 

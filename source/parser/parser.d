@@ -49,7 +49,6 @@ Expr parseAssignment(ref TokenStream tokstr)
 Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
 {
     auto tok = tokstr.read();
-    auto loc = SrcLoc(tok.pos, tokstr.filename);
 
     assert(tok.kind == Token.SEP);
     assert(tok.stringVal == "(" || tok.stringVal == "[");
@@ -66,13 +65,14 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
         // Accumulate.
         lhs = callsub;
 
-        // Call.
-        if (tok.stringVal == "(")
+        // Subscript
+        if (tok.stringVal == "[")
         {
             auto idx = parseExpr(tokstr);
             callsub = semaArrayDeref(lhs, idx);
+            expectSep(tokstr, "]");
         }
-        // Subscript.
+        // Call.
         else
         {
             args ~= parseAssignment(tokstr);
@@ -85,7 +85,12 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
             }
             callsub = semaCall(lhs, args);
         }
+
+        // Advance.
+        tok = tokstr.read();
     }
+
+    tokstr.unread();
     return callsub;
 }
 
@@ -119,6 +124,12 @@ Expr parsePrimary(ref TokenStream tokstr)
 ///     (type) { initalizer-list }  - compound literal.
 Expr parseParen(ref TokenStream tokstr)
 {
+    auto tok = tokstr.read();
+
+    assert(
+        (tok.kind == Token.SEP) &&
+        (tok.stringVal == "(")
+    );
     
 }
 

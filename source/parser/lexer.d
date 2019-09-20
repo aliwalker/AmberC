@@ -863,6 +863,12 @@ struct TokenStream
         return tokens[idx++];
     }
 
+    /// Unread a token.
+    void unread()
+    {
+        idx--;
+    }
+
     private bool matchStringval(Token.Kind kind, string val)
     {
         if (
