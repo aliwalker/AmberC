@@ -110,28 +110,31 @@ class StringExpr : Expr
 class IdentExpr : Expr
 {
     /// The resolved Decl.
-    Decl name;
+    Decl identDecl;
+
+    /// Identifier string.
+    string identStr;
 
     /// Constructor
-    this(Decl name, SrcLoc loc)
+    this(Decl identDecl, string idstr, SrcLoc loc)
     {
-        /// Declaration before usage.
-        assert(name !is null);
+        assert(idstr !is null);
 
-        super(name.type, loc);
-        this.name = name;
+        super(identDecl.type, loc);
+        this.identStr = idstr;
+        this.identDecl = identDecl;
     }
 
     /// Is it a function designator?
     bool isFuncDesg() const
     {
-        return (cast(FuncDecl)name !is null);
+        return (cast(FuncDecl)identDecl !is null);
     }
 
     /// Is it a variable reference?
     bool isVaref() const
     {
-        return (cast(VarDecl)name !is null);
+        return (cast(VarDecl)identDecl !is null);
     }
 }
 
@@ -228,7 +231,7 @@ class MemberExpr : Expr
 class CallExpr : Expr
 {
     /// Expr that represents the callee.
-    string callee;
+    Expr callee;
 
     /// Args passed to this call.
     Expr[] args;
@@ -236,7 +239,7 @@ class CallExpr : Expr
     /// Constructor.
     /// [retType] - function's return type.
     /// [callee] - Func name.
-    this(Type retType, string callee, Expr[] args, SrcLoc loc)
+    this(Type retType, Expr callee, Expr[] args, SrcLoc loc)
     {
         assert(retType !is null);
         assert(callee !is null);

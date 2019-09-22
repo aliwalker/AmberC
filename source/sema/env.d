@@ -86,6 +86,7 @@ void envAddDecl(string name, Decl decl)
     {
         assert(fundecl !is null);
 
+        // Function definitions are only allowed globally.
         if (curenv != glenv && fundecl.isDefinition)
         {
             report(
@@ -95,14 +96,22 @@ void envAddDecl(string name, Decl decl)
             );
         }
 
-        if (name in glenv.names)
+        auto prevdecl = envResolv(name);
+        if (prevdecl !is null)
         {
-            auto prevdecl = glenv.names[name];
-            // TODO: compatible
+            // Incompatible types.
+            if (prevdecl.type != fundecl.type)
+            {
+                report(
+                    SVR_ERR,
+                    format!"conflicting types for '%s'"(name),
+                    fundecl.loc
+                );
+            }
         }
         else
         {
-            glenv.names[name] = fundecl;
+            curenv.names[name] = fundecl;
         }
     }
 }
@@ -128,7 +137,7 @@ void envUnresolv(string name, IdentExpr ident)
 /// Whether [name] is an unresolved name.
 bool isUnresolved(string name)
 {
-    return (name in glenv.unresolved);
+    return (name in glenv.unresolved) is null;
 }
 
 /// Return true if [decl] is a local declaration.

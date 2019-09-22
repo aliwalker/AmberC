@@ -12,9 +12,8 @@ import std.range;
 import std.regex;
 import std.string;
 
-/// A list of C keywords.
-/// TODO: Some of those keywords are currently unsupported.
-immutable string[] keywords = [
+/// Keywords that represent types.
+immutable string[] tkw = [
     // Type specifiers.
     // 6.7.2
     "_Bool",
@@ -29,8 +28,10 @@ immutable string[] keywords = [
     "void",
     "struct",
     "union",
+];
 
-    // Control flow.
+/// Control flow keywords.
+immutable string[] cfkw = [
     "break",
     "continue",
     "do",
@@ -39,24 +40,27 @@ immutable string[] keywords = [
     "if",
     "switch",
     "while",
+];
 
-    "sizeof",
-
-    // Type qualifiers
-    // 6.7.3
+/// Type qualifiers
+immutable string[] tqualkw = [
     "const",
     "restrict",
     "volatile",
     "inline",
+];
 
-    // Storage-class specifiers.
-    // 6.7.1
+/// Storage-class specifiers.
+immutable string[] sckw = [
     "auto",
     "extern",
     "register",
     "static",
     "typedef",
 ];
+
+/// C keywords.
+immutable string[] keywords = ["sizeof"] ~ tkw ~ cfkw ~ tqualkw ~ sckw;
 
 /// A list of seperators string repr.
 immutable string[] seperators = [

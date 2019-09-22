@@ -9,6 +9,19 @@ import parser.ast;
 import sema.env;
 import reporter;
 
+/// Simple wrapper for reporting an error and return null.
+private T errExpr(T)(string msg, SrcLoc loc)
+    if (is (T : Expr))
+{
+    report(
+        SVR_ERR,
+        msg,
+        loc
+    );
+
+    return null;
+}
+
 /// Semantic action on array access.
 UnaryExpr semaArrayDeref(Expr base, Expr idx)
 {
@@ -17,7 +30,7 @@ UnaryExpr semaArrayDeref(Expr base, Expr idx)
     Type elemTy;
 
     // When base is of ArrayType, decay array to pointer.
-    if (arrayTy !is null)
+    if (arrayTy)
     {
         auto elemPtrTy = getPtrType(arrayTy.elemTy);
 
@@ -29,30 +42,27 @@ UnaryExpr semaArrayDeref(Expr base, Expr idx)
             base.loc);
     }
 
-    else if (ptrTy !is null)
+    else if (ptrTy)
     {
         elemTy = ptrTy.base;
     }
 
     else
     {
-        report(
-            SVR_ERR,
+        return errExpr!UnaryExpr(
             "subscripted value is not an array or pointer",
             idx.loc,
         );
     }
 
-    if (!isInteger(idx))
+    if (!isInteger(idx.type))
     {
-        report(
-            SVR_ERR,
+        return errExpr!UnaryExpr(
             "array subscript is not an integer",
             idx.loc
         );
     }
 
-    // TODO: semaBin
     auto addrExpr = new BinExpr(
         base.type, 
         "+",
@@ -70,16 +80,65 @@ UnaryExpr semaArrayDeref(Expr base, Expr idx)
 }
 
 /// Semantic action on call expression.
-CallExpr semaCall(Expr callee, Expr[] args)
+CallExpr semaCall(Expr callee, Expr[] args, SrcLoc parenLoc)
 {
+    auto ftype = cast(FuncType)(callee.type);
 
+    // Error if callee is not a function.
+    if (ftype is null)
+    {
+        return errExpr!CallExpr(
+            format!"called object type '%s' is not a function or function pointer"(callee.type),
+            callee.loc
+        );
+    }
+
+    // When callee is an identifier.
+    if (cast(IdentExpr)callee)
+    {
+        auto fexpr = cast(IdentExpr)callee;
+        auto fdecl = fexpr.identDecl;
+
+        if (fdecl is null)
+        {
+            // Do not allow implicit declaration.
+            return errExpr!CallExpr(
+                format!"implicit declaration of function '%s' is not valid"(fexpr.identStr),
+                fdecl.loc
+            );
+        }
+    }
+
+    // Check arity.
+    if (ftype.params.length != args.length)
+    {
+        return errExpr!CallExpr(
+            "unmatched number of arguments for function",
+            callee.loc
+        );
+    }
+
+    // Check arguments.
+    foreach (i, arg; args)
+    {
+        // TODO: arg-promotion.
+        if (arg.type != ftype.params[i])
+        {
+            return errExpr!CallExpr(
+                format!"incompatible arg type '%s'"(arg.type),
+                arg.loc
+            );
+        }
+    }
+
+    return new CallExpr(ftype.retType, callee, args, parenLoc);
 }
 
 /// Semantic action on identier. 
 IdentExpr semaIdent(string name, SrcLoc loc)
 {
     auto decl = envResolv(name);
-    auto ident = new IdentExpr(decl, loc);
+    auto ident = new IdentExpr(decl, name, loc);
 
     if (decl is null)
     {
@@ -141,13 +200,10 @@ IntExpr semaInt(long val, string sfx, SrcLoc loc)
             return new IntExpr(ullongType, val, loc);
 
         default:
-            report(
-                SVR_ERR, 
+            return errExpr!IntExpr(
                 format!"Unknown suffix for integer: %s"(val), 
                 loc
             );
-
-            return null;
     }
 }
 
@@ -159,12 +215,9 @@ FloatExpr semaFloat(double val, string sfx, SrcLoc loc)
         case "f", "F", "":  return new FloatExpr(floatType, val, loc);
         case "l", "L":      return new FloatExpr(doubleType, val, loc);
         default:
-            report(
-                SVR_ERR,
+            return errExpr!FloatExpr(
                 format!"Unknown suffix for floating literal: %s"(val),
                 loc
             );
-
-            return null;
     }
 }

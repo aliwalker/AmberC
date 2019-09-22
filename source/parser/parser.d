@@ -83,7 +83,7 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
                 tokstr.expectSep(",");
                 args ~= parseAssignment(tokstr);
             }
-            callsub = semaCall(lhs, args);
+            callsub = semaCall(lhs, args, tok.loc);
         }
 
         // Advance.
@@ -130,6 +130,14 @@ Expr parseParen(ref TokenStream tokstr)
         (tok.kind == Token.SEP) &&
         (tok.stringVal == "(")
     );
+    
+}
+
+/// Try to parse a type from [tokstr]. This function
+/// fails silently and returns [null]; otherwise it returns
+/// the type parsed.
+private Type tryParseType(ref TokenStream tokstr)
+{
     
 }
 
