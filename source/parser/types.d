@@ -7,6 +7,7 @@ import std.stdio;
 import std.stdint;
 import std.array;
 import std.format;
+import std.typecons;
 
 /// Size of a pointer.
 const PTR_SIZE = 8;
@@ -26,6 +27,7 @@ class Type
         VOID = 1,
         BOOL_,
         CHAR,
+        SCHAR,
         SHORT,
         INT,
         LONG,
@@ -51,6 +53,7 @@ class Type
             kind == VOID    ||
             kind == BOOL_   ||
             kind == CHAR    ||
+            kind == SCHAR   ||
             kind == SHORT   ||
             kind == INT     ||
             kind == LONG    ||
@@ -75,7 +78,7 @@ class Type
         {
             case VOID:            return 0;
             case BOOL_:           return 1;
-            case CHAR, UCHAR:     return 1;
+            case CHAR, SCHAR, UCHAR:     return 1;
             case SHORT, USHORT:   return 2;
             case INT, UINT:       return 4;
             case LONG, ULONG:     return 8;
@@ -109,6 +112,7 @@ class Type
             case VOID:      return "void";
             case BOOL_:     return "Bool_";
             case CHAR:      return "char";
+            case SCHAR:     return "signed char";
             case SHORT:     return "short";
             case INT:       return "int";
             case LONG:      return "long";
@@ -134,6 +138,7 @@ bool isInteger(Type type)
     switch (type.kind)
     {
         case Type.CHAR:      return true;
+        case Type.SCHAR:     return true;
         case Type.SHORT:     return true;
         case Type.INT:       return true;
         case Type.LONG:      return true;
@@ -165,6 +170,14 @@ class RecType : Type
 
         /// Offset from the beginning address.
         size_t offset;
+
+        /// Constructor.
+        this(Type type, string name, size_t offset = 0)
+        {
+            this.type = type;
+            this.name = name;
+            this.offset = offset;
+        }
     }
 
     /// Whether this is a union type.
@@ -248,6 +261,9 @@ class RecType : Type
         return tystr ~ ")";
     }
 }
+
+/// Access to Field constructor.
+alias RecField = RecType.Field;
 
 /// Function type.
 class FuncType : Type
@@ -410,6 +426,7 @@ class PtrType : Type
 __gshared Type voidType   = new Type(Type.VOID);
 __gshared Type boolType   = new Type(Type.BOOL_);
 __gshared Type charType   = new Type(Type.CHAR);
+__gshared Type scharType  = new Type(Type.SCHAR);
 __gshared Type shortType  = new Type(Type.SHORT);
 __gshared Type intType    = new Type(Type.INT);
 __gshared Type longType   = new Type(Type.LONG);
@@ -483,11 +500,13 @@ RecType getRecType(string name, bool isUnion = false)
         { return new RecType(name, null, isUnion); });
 }
 
-/// Get or create a complete RecType.
-RecType getRecType(T...)(string name, bool isUnion = false)
+RecType getRecType(
+    string name,
+    RecField[] fields, 
+    bool isUnion = false)
 {
     auto ty = getRecType(name, isUnion);
-    
+
     // Already complete.
     if (ty.members !is null)
     {
@@ -499,7 +518,7 @@ RecType getRecType(T...)(string name, bool isUnion = false)
         dvtypes.remove(name);
         return getType!(RecType)(
             name,
-            { return (isUnion ? makeUnionType!T(name) : makeStrucType!T(name)); });
+            { return (isUnion ? makeUnionType(name, fields) : makeStrucType(name, fields)); });
     }
 }
 
@@ -536,56 +555,35 @@ PtrType getPtrType(Type base)
 /// Helper for iterating record fields.
 /// [funct] accepts as params the type of the field, 
 /// and the name of the field.
-private void iterFields(T...)(
-    void delegate(typeof(T[0]), typeof(T[1])) funct
+private void iterFields(
+    ref RecField[] fields,
+    void delegate(Type, ulong) opField
 )
 {
-    static assert((T.length & 0x1) == 0);
+    assert((fields.length & 0x1) == 0);
 
-    foreach (i, t; T)
+    foreach (i, f; fields)
     {
-        static if ((i & 0x1) == 0)
-        {
-            static assert(is (typeof(t) : Type), "Expect \"Type\"");
-            static assert(is (typeof(T[i + 1]) == string), "Expect field name as a string");
-
-            funct(t, T[i + 1]);
-        }
-        else
-        {
-            // Do nothing.
-        }
+        opField(f.type, i);
     }
 }
 
-/// Creates and returns a RecType.
-/// Example usage:
-///
-/// auto fooStrucType = makeStrucType!(
-///     intType, "foo",
-///     longType, "bar"
-/// )("fooStrucType");
-///
-/// This function calculates alignments and assigns
-/// an offset to each member field.
-private RecType makeStrucType(T...)(string strucName)
+private RecType makeStrucType(
+    string strucName, 
+    RecField[] fields)
 {
-    // Field constructor.
-    alias F = RecType.Field;
-
     // Find alignment.
     ulong alig = 0;
-    iterFields!T((t, _)
+    iterFields(fields, (t, _)
     {
         if (t.typeSize() > alig)
             alig = t.typeSize();
     });
 
-    // Construct fields.
-    auto fields = appender!(F[]);
+    // Assign offsets.
     ulong offset = 0;
     ulong size = 0;
-    iterFields!T((t, name)
+    iterFields(fields, (t, i)
     {
         if (size + t.typeSize() < alig)
         {
@@ -605,35 +603,35 @@ private RecType makeStrucType(T...)(string strucName)
             size = t.typeSize();
         }
 
-        fields.put(F(t, name, offset));
+        fields[i].offset = offset;
         offset += t.typeSize();
     });
 
-    return new RecType(strucName, fields.data);
+    return new RecType(strucName, fields);
 }
 
-/// Same as makeStrucType, for union type.
-private RecType makeUnionType(T...)(string unionName)
+private RecType makeUnionType(
+    string unionName, 
+    RecField[] fields)
 {
-    // Field constructor.
-    alias F = RecType.Field;
-    auto fields = appender!(F[]);
-
-    iterFields!T((t, name)
+    iterFields(fields, (t, i)
     {
-        fields.put(F(t, name, 0));
+        fields[i].offset = 0;
     });
 
-    return new RecType(unionName, fields.data, true);
+    return new RecType(unionName, fields, true);
 }
 
 /// Test makeStrucType and makeUnionType.
 unittest
 {
-    RecType fooStrucType = makeStrucType!(
-        intType, "foo",
-        longType, "bar"
-    )("fooStruc");
+    RecType fooStrucType = makeStrucType(
+        "fooStruc",
+        [
+            RecField(intType, "foo"),
+            RecField(longType, "bar"),
+        ]
+    );
 
     assert(fooStrucType.isUnion == false);
     assert(fooStrucType.typeSize == 16);
@@ -644,10 +642,13 @@ unittest
     assert(fooStrucType.members[1].offset == 8);
     assert(fooStrucType.members[1].name == "bar");
 
-    RecType barUnionType = makeUnionType!(
-        longType, "foo",
-        intType, "bar"
-    )("barUnion");
+    RecType barUnionType = makeUnionType(
+        "barUnion",
+        [
+            RecField(longType, "foo"),
+            RecField(intType, "bar")
+        ]
+    );
     assert(barUnionType.isUnion);
     assert(barUnionType.typeSize == 8);
     assert(barUnionType.members[0].type == longType);
@@ -667,16 +668,16 @@ unittest
 
     Type longPtr = new PtrType(longType);
     Type struc = new RecType("fooStruc", [
-        RecType.Field(longPtr, "foo", 0),
-        RecType.Field(intType, "bar", 8),
+        RecField(longPtr, "foo", 0),
+        RecField(intType, "bar", 8),
     ]);
     Type struc2 = new RecType("fooStruc", [
-        RecType.Field(longPtr, "foo", 0),
-        RecType.Field(intType, "bar", 8),
+        RecField(longPtr, "foo", 0),
+        RecField(intType, "bar", 8),
     ]);
     Type struc3 = new RecType("foo2Struc", [
-        RecType.Field(longPtr, "foo2", 0),
-        RecType.Field(intType, "bar2", 8),
+        RecField(longPtr, "foo2", 0),
+        RecField(intType, "bar2", 8),
     ]);
     assert(struc == struc2);
     assert(struc.toHash() == struc2.toHash());
@@ -706,15 +707,21 @@ unittest
     assert(funcTy.toString == "void(*)(int*)");
 
     /// RecType.
-    auto fooStrucTy = makeStrucType!(
-        intType, "foo",
-        longType, "bar"
-    )("fooStruc");
+    auto fooStrucTy = makeStrucType(
+        "fooStruc",
+        [
+            RecField(intType, "foo"),
+            RecField(longType, "bar")
+        ]
+    );
     assert(fooStrucTy.toString == "struct(fooStruc)(int,long)");
-    auto barUnionTy = makeUnionType!(
-        intType, "foo",
-        longType, "bar"
-    )("barUnion");
+    auto barUnionTy = makeUnionType(
+        "barUnion",
+        [
+            RecField(intType, "foo"),
+            RecField(longType, "bar")
+        ]
+    );
     assert(barUnionTy.toString == "union(barUnion)(int,long)");
 }
 
@@ -727,10 +734,12 @@ unittest
 
     auto fooStrucTy = getRecType("fooStruc");
     assert(fooStrucTy.members is null);
-    fooStrucTy = getRecType!(
-        intType, "foo",
-        longType, "bar"
-    )("fooStruc");
+    fooStrucTy = getRecType(
+        "fooStruc",
+        [
+            RecField(intType, "foo"),
+            RecField(longType, "bar"),
+        ]);
     assert(fooStrucTy.members !is null);
     assert(getRecType("fooStruc").members !is null);
 

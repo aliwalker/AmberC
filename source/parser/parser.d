@@ -10,18 +10,30 @@ import parser.types;
 import sema.expr;
 import reporter;
 
+/// Report parsing error and perfomrs error recovery.
+private Expr parseError(ref TokenStream, string msg, SrcLoc loc)
+{
+    // TODO: error recovery on TokenStream.
+
+    report(
+        SVR_ERR,
+        msg,
+        loc
+    );
+
+    return null;
+}
+
 /// Consume a token and expect it to be a separator.
 private void expectSep(ref TokenStream tokstr, string sep)
 {
     if (!tokstr.matchSep(sep))
     {
-        report(
-            SVR_ERR,
+        parseError(
+            tokstr,
             format!"expected '%s'"(sep),
             SrcLoc(tokstr.peek.pos, tokstr.filename)
         );
-
-        // TODO: error recovery.
     }
 }
 
@@ -133,12 +145,157 @@ Expr parseParen(ref TokenStream tokstr)
     
 }
 
-/// Try to parse a type from [tokstr]. This function
+/// Try to parse a type specifier from [tokstr]. This function
 /// fails silently and returns [null]; otherwise it returns
 /// the type parsed.
-private Type tryParseType(ref TokenStream tokstr)
+Type tryParseTypeSpec(ref TokenStream tokstr)
 {
+    // Try matching a type specifier.
+    string matched = "";
+    foreach (kw; tkw)
+    {
+        if (tokstr.matchKW(kw))
+        {
+            matched = kw;
+        }
+    }
+
+    switch (matched)
+    {
+        case "":            break; // Does not match.
+        case "_Bool":       return boolType;
+        case "char":        return charType;
+        case "short":
+            tokstr.matchKW("int");
+            return shortType;
+
+        case "int":         return parseIntTypeSpec!"signed"(tokstr);
+        case "signed":      return parseIntTypeSpec!"signed"(tokstr);
+        case "unsigned":    return parseIntTypeSpec!"unsigned"(tokstr);
+        case "long":
+            // long long (int)
+            if (tokstr.matchKW("long"))
+            {
+                tokstr.matchKW("int");
+                return llongType;
+            }
+            // long (int)
+            else
+            {
+                return longType;
+            }
+
+        case "float":       return floatType;
+        case "double":      return doubleType;
+        case "void":        return voidType;
+        case "struct", "union":
+            return parseAggregateType!(matched)(tokstr);
+    }
+}
+
+/// intTypeSpec:
+///     "signed" intType
+///              ^
+///     "unsigned" intType
+///                ^
+/// intType:
+///     "char" | "short" | "int" | "long" | "long long"
+Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
+{
+    static assert(pref == "signed" || pref == "unsigned");
+    static if (pref == "signed")
+    {
+        Type charTy = scharType;
+        Type shortTy = shortType;
+        Type intTy = intType;
+        Type longTy = longType;
+        Type llongTy = llongType;
+    }
+    else
+    {
+        Type charTy = ucharType;
+        Type shortTy = ushortType;
+        Type intTy = uintType;
+        Type longTy = ulongType;
+        Type llongTy = ullongType;
+    }
+
+    auto tok = tokstr.read();
+
+    // "signed" or "unsigned".
+    if (tok.kind != Token.KW)
+    {
+        tokstr.unread();
+        return intTy;
+    }
+
+    switch (tok.stringVal)
+    {
+        case "char":
+            return charTy;
+
+        case "short":
+            // "signed short int". "int" is optional.
+            tokstr.matchKW("int");
+            return shortTy;
+
+        case "int":
+            return intTy;
+        
+        case "long":
+            // "signed long long (int)"
+            if (tokstr.matchKW("long"))
+            {
+                tokstr.matchKW("int");
+                return llongTy;
+            }
+            // "signed long (int)"
+            else
+            {
+                tokstr.matchKW("int");
+                return longTy;
+            }
+
+        default:
+            report(
+                SVR_ERR,
+                format!"unexpected keyword '%s'"(tok),
+                SrcLoc(tokstr.filename, tok.pos)
+            );
+
+            return null;
+    }
+}
+
+/// aggregTypeSpec:
+///     ("struct" | "union") (name)? ('{' struct-decl-list '}')?
+///                          ^
+Type parseAggregTypeSpec(string t)(ref TokenStream tokstr)
+{
+    static assert(t == "struct" || t == "union");
+    auto tok = tokstr.read();
+    string ident;
+    string decls;
+
+    // identifier.
+    if (tok.kind == Token.IDENT)
+    {
+        ident = tok.stringVal;
+    }
+
+    if (tokstr.matchSep("{"))
+    {
+        decls = parseStructDeclList(tokstr);
+    }
     
+}
+
+/// struct-decl-list:
+///     (spec-qual-list declarator)* ;
+///
+string parseStructDeclList(ref TokenStream tokstr)
+{
+    return "";
 }
 
 /// Test parsePrimary.
