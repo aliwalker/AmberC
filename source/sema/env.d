@@ -21,6 +21,10 @@ class Env
     /// Unresolved identifiers.
     IdentExpr[string] unresolved;
 
+    alias ExitCallback = void delegate();
+    /// Callbacks on exit of the env.
+    ExitCallback[] cb;
+
     /// Constructor.
     this(Env parent) {
         this.parent = parent;
@@ -29,12 +33,24 @@ class Env
 
 /// Global environment.
 private __gshared Env glenv = new Env(null);
-/// Environment chain.
-private __gshared Env envs;
+/// Current environment.
+private __gshared Env curenv;
 
 shared static this()
 {
-    envs = glenv;
+    curenv = glenv;
+}
+
+/// Called when parser encounters a new environment.
+void pushEnv()
+{
+    curenv = new Env(curenv);
+}
+
+/// Called when parser exits an environment.
+void popEnv()
+{
+    curenv = curenv.parent;
 }
 
 /// Resolve [name] from [env]. Return the Decl
@@ -42,18 +58,18 @@ shared static this()
 /// when [name] is resolved to a local Decl.
 Decl envResolv(string name)
 {
-    // Start from envs.
-    auto curenv = envs;
+    // Start from curenv.
+    auto env = curenv;
 
     // Search the chain.
-    while (curenv !is null)
+    while (env !is null)
     {
-        if (name in curenv.names)
+        if (name in env.names)
         {
-            return curenv.names[name];
+            return env.names[name];
         }
 
-        curenv = curenv.parent;
+        env = env.parent;
     }
     return null;
 }
@@ -61,14 +77,14 @@ Decl envResolv(string name)
 /// Add a declaration to current env.
 void envAddDecl(string name, Decl decl)
 {
-    auto curenv = envs;
+    auto env = curenv;
     auto vardecl = cast(VarDecl)decl;
     auto fundecl = cast(FuncDecl)decl;
 
     // Var
     if (vardecl !is null)
     {
-        if (name in curenv.names)
+        if (name in env.names)
         {
             report(
                 SVR_ERR,
@@ -78,7 +94,7 @@ void envAddDecl(string name, Decl decl)
         }
         else
         {
-            curenv.names[name] = decl;
+            env.names[name] = decl;
         }
     }
     // Func
@@ -87,7 +103,7 @@ void envAddDecl(string name, Decl decl)
         assert(fundecl !is null);
 
         // Function definitions are only allowed globally.
-        if (curenv != glenv && fundecl.isDefinition)
+        if (env != glenv && fundecl.isDefinition)
         {
             report(
                 SVR_ERR,
@@ -111,9 +127,15 @@ void envAddDecl(string name, Decl decl)
         }
         else
         {
-            curenv.names[name] = fundecl;
+            env.names[name] = fundecl;
         }
     }
+}
+
+/// Add a callback for exit.
+void envAddExitCb(Env.ExitCallback cb)
+{
+    curenv.cb ~= cb;
 }
 
 /// Same as [envResolv] except that this function
@@ -156,8 +178,8 @@ bool isLocal(const Decl decl)
 /// Test resolv
 unittest
 {
-    envs = new Env(envs);
-    envs.names["foo"] = new Decl(intType, "foo", SrcLoc());
+    curenv = new Env(curenv);
+    curenv.names["foo"] = new Decl(intType, "foo", SrcLoc());
     auto decl = envResolv("foo");
     assert(decl !is null);
     assert(decl.isLocal);

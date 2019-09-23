@@ -157,6 +157,9 @@ bool isInteger(Type type)
 /// Struct or Union type
 class RecType : Type
 {
+    /// Used for denoting anonymous RecType.
+    static ulong anonId = 0;
+
     /// Name of the struct.
     string name;
 
@@ -491,21 +494,43 @@ private T getType(T)(string tystr, T delegate() ctor)
     return ty;
 }
 
+/// Remove a type from [dvtypes].
+void removeType(string tystr)
+{
+    dvtypes.remove(tystr);
+}
+
+private string __preRecTypeStr;
+
+/// [name] is the tag optional identifier in struct declaration.
+/// For anonymous struct, [name] is "".
 /// if [name] exists in [dvtypes], return it.
 /// Otherwise create an incomplete RecType for [name].
-RecType getRecType(string name, bool isUnion = false)
+RecType getRecType(
+    string name, 
+    out string tystr = __preRecTypeStr, 
+    bool isUnion = false)
 {
+    if (name == "")
+    {
+        name = format!"anon%s"(RecType.anonId++);
+    }
+
+    tystr = new RecType(name, null, isUnion).toString();
+
     return getType!(RecType)(
-        name,
+        tystr,
         { return new RecType(name, null, isUnion); });
 }
 
+/// Ditto.
 RecType getRecType(
     string name,
     RecField[] fields, 
+    out string tystr = __preRecTypeStr,
     bool isUnion = false)
 {
-    auto ty = getRecType(name, isUnion);
+    auto ty = getRecType(name, tystr, isUnion);
 
     // Already complete.
     if (ty.members !is null)
@@ -515,9 +540,9 @@ RecType getRecType(
     // Create a complete version of it.
     else
     {
-        dvtypes.remove(name);
+        dvtypes.remove(tystr);
         return getType!(RecType)(
-            name,
+            tystr,
             { return (isUnion ? makeUnionType(name, fields) : makeStrucType(name, fields)); });
     }
 }
@@ -732,16 +757,18 @@ unittest
     assert(intPtrTy !is null);
     assert(getPtrType(intType) == getPtrType(intType));
 
-    auto fooStrucTy = getRecType("fooStruc");
+    string fooStrucTyStr;
+    auto fooStrucTy = getRecType("fooStruc", fooStrucTyStr);
     assert(fooStrucTy.members is null);
     fooStrucTy = getRecType(
         "fooStruc",
         [
             RecField(intType, "foo"),
             RecField(longType, "bar"),
-        ]);
+        ],
+        fooStrucTyStr);
     assert(fooStrucTy.members !is null);
-    assert(getRecType("fooStruc").members !is null);
+    assert(getRecType("fooStruc", fooStrucTyStr).members !is null);
 
     auto fooStrucMems = getRecType("fooStruc").members;
     assert(fooStrucMems[0].type == intType);

@@ -3,11 +3,13 @@
 
 module parser.parser;
 
+import std.stdint;
 import std.format;
 import parser.ast;
 import parser.lexer;
 import parser.types;
 import sema.expr;
+import sema.env;
 import reporter;
 
 /// Report parsing error and perfomrs error recovery.
@@ -95,7 +97,7 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
                 tokstr.expectSep(",");
                 args ~= parseAssignment(tokstr);
             }
-            callsub = semaCall(lhs, args, tok.loc);
+            callsub = semaCall(lhs, args, SrcLoc(tok.pos, tokstr.filename));
         }
 
         // Advance.
@@ -133,22 +135,76 @@ Expr parsePrimary(ref TokenStream tokstr)
 
 /// paren:
 ///     (expr)                      - grouping.
+///     ^
 ///     (type) { initalizer-list }  - compound literal.
+///     ^
 Expr parseParen(ref TokenStream tokstr)
 {
-    auto tok = tokstr.read();
-
     assert(
-        (tok.kind == Token.SEP) &&
-        (tok.stringVal == "(")
+        (tokstr.peek.kind == Token.SEP) &&
+        (tokstr.peek.stringVal == "(")
     );
+
+
+    if (tryParseTypeName(tokstr))
+    {
+        // TODO: compound-literal.
+    }
     
+    return parseExpr(tokstr);
 }
 
-/// Try to parse a type specifier from [tokstr]. This function
-/// fails silently and returns [null]; otherwise it returns
-/// the type parsed.
-Type tryParseTypeSpec(ref TokenStream tokstr)
+/// Try to parse a type name.
+Type tryParseTypeName(ref TokenStream tokstr)
+{
+    // TODO
+    return null;
+}
+
+/// Try to parse a qualifier.
+uint8_t tryParseTypeQual(ref TokenStream tokstr)
+{
+    bool isQual(Token tok)
+    {
+        if (tok.kind != Token.KW)
+        {
+            return false;
+        }
+
+        foreach (q; tqualkw)
+        {
+            if (q == tok.stringVal)
+                return true;
+        }
+        return false;
+    }
+
+    uint8_t quals = 0;
+    auto tok = tokstr.read();
+    while (isQual(tok))
+    {
+        switch (tok.stringVal)
+        {
+            case "const":    quals |= QUAL_CONST; break;
+            case "register": quals |= QUAL_REG; break;
+            default:
+                report(
+                    SVR_ERR,
+                    format!"qualifier '%s' is not implemented"(tok.stringVal),
+                    SrcLoc(tok.pos, tokstr.filename),
+                );
+        }
+        tok = tokstr.read();
+    }
+
+    tokstr.unread();
+    return quals;
+}
+
+/// Try to parse an object type specifier from [tokstr].
+/// This function fails silently and returns [null]; 
+/// otherwise it returns the type parsed.
+Type tryParseObjTypeSpec(ref TokenStream tokstr)
 {
     // Try matching a type specifier.
     string matched = "";
@@ -157,6 +213,7 @@ Type tryParseTypeSpec(ref TokenStream tokstr)
         if (tokstr.matchKW(kw))
         {
             matched = kw;
+            break;
         }
     }
 
@@ -188,9 +245,14 @@ Type tryParseTypeSpec(ref TokenStream tokstr)
         case "float":       return floatType;
         case "double":      return doubleType;
         case "void":        return voidType;
-        case "struct", "union":
-            return parseAggregateType!(matched)(tokstr);
+        case "struct":      return parseAggregTypeSpec(tokstr, false);
+        case "union":       return parseAggregTypeSpec(tokstr, true);
+        
+        default:
+            // TODO: typedef name and enum.
+            return null;
     }
+    return null;
 }
 
 /// intTypeSpec:
@@ -260,7 +322,7 @@ Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
             report(
                 SVR_ERR,
                 format!"unexpected keyword '%s'"(tok),
-                SrcLoc(tokstr.filename, tok.pos)
+                SrcLoc(tok.pos, tokstr.filename)
             );
 
             return null;
@@ -270,12 +332,16 @@ Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
 /// aggregTypeSpec:
 ///     ("struct" | "union") (name)? ('{' struct-decl-list '}')?
 ///                          ^
-Type parseAggregTypeSpec(string t)(ref TokenStream tokstr)
+/// struct-decl-list:
+///     (spec-qual-list declarator ';')*
+Type parseAggregTypeSpec(ref TokenStream tokstr, bool isUnion)
 {
-    static assert(t == "struct" || t == "union");
+    auto isDef = false;
     auto tok = tokstr.read();
+
+    RecType recType;
+    RecField[] decls;
     string ident;
-    string decls;
 
     // identifier.
     if (tok.kind == Token.IDENT)
@@ -283,19 +349,46 @@ Type parseAggregTypeSpec(string t)(ref TokenStream tokstr)
         ident = tok.stringVal;
     }
 
+    // struct-decl-list.
     if (tokstr.matchSep("{"))
     {
+        // Already exists.
+        if (getRecType(ident, ident, isUnion))
+        {
+            report(
+                SVR_ERR,
+                format!"redeclaration of '%s'"(ident),
+                SrcLoc(tok.pos, tokstr.filename),
+            );
+            return null;
+        }
+
+        isDef = true;
         decls = parseStructDeclList(tokstr);
     }
-    
+
+    string tystr;
+    recType = getRecType(ident, decls, tystr, isUnion);
+
+    if (isDef)
+    {
+        // Rm this type info at the end of this env.
+        envAddExitCb(()
+        {
+            removeType(tystr);
+        });
+    }
+    return recType;
 }
 
 /// struct-decl-list:
 ///     (spec-qual-list declarator)* ;
 ///
-string parseStructDeclList(ref TokenStream tokstr)
+RecField[] parseStructDeclList(ref TokenStream tokstr)
 {
-    return "";
+    // TODO:
+    tokstr.expectSep("}");
+    return null;
 }
 
 /// Test parsePrimary.
