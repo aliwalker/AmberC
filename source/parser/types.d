@@ -50,7 +50,7 @@ class Type
     uint8_t qual;
 
     /// Constructor for a base type in C.
-    this(Kind kind, uint8_t qual = 0)
+    private this(Kind kind, uint8_t qual = 0)
     {
         assert(
             kind == VOID    ||
@@ -214,7 +214,7 @@ class RecType : Type
     Field[] members;
 
     /// Constructor.
-    this(
+    private this(
         string name, 
         Field[] members, 
         bool isUnion = false, 
@@ -301,7 +301,7 @@ class FuncType : Type
     Type[] params;
 
     /// Constructor.
-    this(Type retType, Type[] params, uint8_t qual = 0)
+    private this(Type retType, Type[] params, uint8_t qual = 0)
     {
         super(DERV, qual);
 
@@ -383,7 +383,7 @@ class ArrayType : Type
     size_t size;
 
     /// Constructor.
-    this(Type elemTy, size_t size, uint8_t qual = 0)
+    private this(Type elemTy, size_t size, uint8_t qual = 0)
     {
         super(DERV, qual);
 
@@ -439,7 +439,7 @@ class PtrType : Type
     Type base;
 
     /// Constructor.
-    this(Type base, uint8_t qual = 0)
+    private this(Type base, uint8_t qual = 0)
     {
         super(DERV, qual);
 

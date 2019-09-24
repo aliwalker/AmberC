@@ -13,7 +13,7 @@ import sema.env;
 import reporter;
 
 /// Report parsing error and perfomrs error recovery.
-private Expr parseError(ref TokenStream, string msg, SrcLoc loc)
+private Expr parseError(ref TokenStream tokstr, string msg, SrcLoc loc)
 {
     // TODO: error recovery on TokenStream.
 
@@ -52,12 +52,48 @@ Expr parseAssignment(ref TokenStream tokstr)
     return null;
 }
 
+/// rec-access:
+///     postfix (('.' | '->') identifier)+
+///             ^
+Expr parseRecAccess(ref TokenStream tokstr, Expr lhs)
+{
+    auto tok = tokstr.read();
+    assert(tok.kind == Token.SEP);
+    assert(tok.stringVal == "." || tok.stringVal == "->");
+
+    while (
+        (tok.kind == Token.SEP) &&
+        (tok.stringVal == "." || tok.stringVal == "->")
+    )
+    {
+        // Read the identifier(member name).
+        auto tokIdent = tokstr.read();
+        if (tokIdent.kind != Token.IDENT)
+        {
+            return parseError(
+                tokstr,
+                "expect identifier",
+                SrcLoc(tokIdent.pos, tokstr.filename)
+            );
+        }
+
+        lhs = semaRecAccess(
+            lhs, 
+            tok.stringVal, 
+            tokIdent.stringVal, 
+            SrcLoc(tokIdent.pos, tokstr.filename)
+        );
+
+        tok = tokstr.read();
+    }
+
+    tokstr.unread();
+    return lhs;
+}
+
 /// call-and-subs:
-///     postfix '[' expression ']'
+///     postfix ('[' expression ']' | '(' arg-list ')')+
 ///              ^
-///     postfix '(' arg-list ')'
-///              ^
-///
 /// arg-list:
 ///     assignment, arg-list
 Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
@@ -67,7 +103,6 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
     assert(tok.kind == Token.SEP);
     assert(tok.stringVal == "(" || tok.stringVal == "[");
 
-    Expr callsub;
     Expr[] args;
 
     while (
@@ -76,14 +111,11 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
         (tok.stringVal == "["))
     )
     {
-        // Accumulate.
-        lhs = callsub;
-
         // Subscript
         if (tok.stringVal == "[")
         {
             auto idx = parseExpr(tokstr);
-            callsub = semaArrayDeref(lhs, idx);
+            lhs = semaArrayDeref(lhs, idx);
             expectSep(tokstr, "]");
         }
         // Call.
@@ -97,7 +129,7 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
                 tokstr.expectSep(",");
                 args ~= parseAssignment(tokstr);
             }
-            callsub = semaCall(lhs, args, SrcLoc(tok.pos, tokstr.filename));
+            lhs = semaCall(lhs, args, SrcLoc(tok.pos, tokstr.filename));
         }
 
         // Advance.
@@ -105,7 +137,7 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
     }
 
     tokstr.unread();
-    return callsub;
+    return lhs;
 }
 
 /// primary-expression:
@@ -145,8 +177,8 @@ Expr parseParen(ref TokenStream tokstr)
         (tokstr.peek.stringVal == "(")
     );
 
-
-    if (tryParseTypeName(tokstr))
+    auto type = tryParseTypeName(tokstr);
+    if (type)
     {
         // TODO: compound-literal.
     }

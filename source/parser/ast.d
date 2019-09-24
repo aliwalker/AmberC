@@ -101,7 +101,7 @@ class StringExpr : Expr
     this(string val, SrcLoc loc)
     {
         // String literal is const char*
-        super(new PtrType(charType), loc);
+        super(getPtrType(charType), loc);
         this.value = val;
     }
 }
@@ -211,18 +211,23 @@ class MemberExpr : Expr
     /// The structure to reference.
     Expr struc;
 
+    /// "." or "->"
+    string op;
+
     /// Member name.
     string name;
 
     /// Constructor.
-    this(Expr struc, string name, SrcLoc loc)
+    this(Type resType, Expr struc, string op, string name, SrcLoc loc)
     {
         assert(struc !is null);
+        assert(op !is null);
         assert(name !is null);
         assert(cast(RecType)(struc.type) !is null);
 
-        super(struc.type, loc);
+        super(resType, loc);
         this.struc = struc;
+        this.op = op;
         this.name = name;
     }
 }
