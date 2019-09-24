@@ -22,6 +22,68 @@ private T semaErrExpr(T)(string msg, SrcLoc loc)
     return null;
 }
 
+/// Abort and report an error if [expr] is not an lvalue.
+private bool isLvalue(Expr expr)
+{
+    if (cast(IdentExpr)expr || cast (MemberExpr)expr)
+    {
+        return true;
+    }
+
+    auto unary = cast(UnaryExpr)expr;
+    if (unary !is null)
+    {
+        switch (unary.kind)
+        {
+            case UnaryExpr.DEREF:   return true;
+            default:
+                break;
+        }
+    }
+
+    return false;
+}
+
+/// Semantic action on postfix
+UnaryExpr semaIncrDecrSfx(Expr opnd, string op, SrcLoc opLoc)
+{
+    assert(op == "++" || op == "--");
+
+    // lhs must be an lvalue.
+    if (!isLvalue(opnd))
+    {
+        return semaErrExpr!UnaryExpr(
+            "expected an lvalue",
+            opnd.loc
+        );
+    }
+
+    auto opnType = opnd.type;
+
+    if (
+        (!isInteger(opnType)) &&
+        (opnType != floatType) &&
+        (opnType != doubleType) &&
+        (cast(PtrType)opnType is null)
+    )
+    {
+        return semaErrExpr!UnaryExpr(
+            format!"cannot perform %s on type '%s'"(
+                (op == "++") ? "increment" : "decrement",
+                opnType
+            ),
+            opLoc
+        );
+    }
+
+    return new UnaryExpr(
+        (op == "++") ? UnaryExpr.POST_INCR : UnaryExpr.POST_DECR,
+        opnd.type,
+        opnd,
+        opLoc
+    );
+}
+
 /// Semantic action on RecType member access.
 MemberExpr semaRecAccess(Expr lhs, string op, string ident, SrcLoc loc)
 {
@@ -203,13 +265,15 @@ CallExpr semaCall(Expr callee, Expr[] args, SrcLoc parenLoc)
 IdentExpr semaIdent(string name, SrcLoc loc)
 {
     auto decl = envResolv(name);
-    auto ident = new IdentExpr(decl, name, loc);
 
     if (decl is null)
     {
-        envUnresolv(name, ident);
+        return semaErrExpr!IdentExpr(
+            format!"use of undeclared variable '%s'"(name),
+            loc
+        );
     }
-
+    auto ident = new IdentExpr(decl, name, loc);
     return ident;
 }
 

@@ -119,6 +119,7 @@ class IdentExpr : Expr
     this(Decl identDecl, string idstr, SrcLoc loc)
     {
         assert(idstr !is null);
+        assert(identDecl !is null);
 
         super(identDecl.type, loc);
         this.identStr = idstr;

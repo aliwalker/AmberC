@@ -52,9 +52,70 @@ Expr parseAssignment(ref TokenStream tokstr)
     return null;
 }
 
-/// rec-access:
-///     postfix (('.' | '->') identifier)+
-///             ^
+private bool isPostfixOp(Token tok)
+{
+    if (tok.kind != Token.SEP)
+    {
+        return false;
+    }
+    return ((tok.stringVal == "++") ||
+            (tok.stringVal == "--") ||
+            (tok.stringVal == ".")  ||
+            (tok.stringVal == "->") ||
+            (tok.stringVal == "[")  ||
+            (tok.stringVal == "("));
+}
+
+/// Postfix:
+///     primary operators*
+///     ^
+/// Operators:
+///     increment-decrement-suffix operators*
+///     | rec-access operators*
+///     | call-and-subs operators*
+Expr parsePostfix(ref TokenStream tokstr)
+{
+    auto expr = parsePrimary(tokstr);
+
+    // Exhaust postfix operators.
+    while (expr && isPostfixOp(tokstr.peek()))
+    {
+        switch (tokstr.peek().stringVal)
+        {
+            case "++", "--":    expr = parseIncrDecrSfx(tokstr, expr); break;
+            case ".", "->":     expr = parseRecAccess(tokstr, expr); break;
+            case "[", "(":      expr = parseCallAndSubs(tokstr, expr); break;
+            default:
+                assert(false, "Not implemented");
+        }
+    }
+    return expr;
+}
+
+/// Increment-decrement-suffix:
+///     ("++" | "--")+
+///     ^
+Expr parseIncrDecrSfx(ref TokenStream tokstr, Expr lhs)
+{
+    auto tok = tokstr.read();
+    assert(tok.kind == Token.SEP);
+    assert(tok.stringVal == "++" || tok.stringVal == "--");
+
+    while (
+        (tok.kind == Token.SEP) &&
+        (tok.stringVal == "++" || tok.stringVal == "--")
+    )
+    {
+        lhs = semaIncrDecrSfx(lhs, tok.stringVal, SrcLoc(tok.pos, tokstr.filename));
+        tok = tokstr.read();
+    }
+    tokstr.unread();
+    return lhs;
+}
+
+/// Rec-access:
+///     (('.' | '->') identifier)+
+///     ^
 Expr parseRecAccess(ref TokenStream tokstr, Expr lhs)
 {
     auto tok = tokstr.read();
@@ -91,9 +152,9 @@ Expr parseRecAccess(ref TokenStream tokstr, Expr lhs)
     return lhs;
 }
 
-/// call-and-subs:
-///     postfix ('[' expression ']' | '(' arg-list ')')+
-///              ^
+/// Call-and-subs:
+///     ('[' expression ']' | '(' arg-list ')')+
+///     ^
 /// arg-list:
 ///     assignment, arg-list
 Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
@@ -287,38 +348,6 @@ Type tryParseObjTypeSpec(ref TokenStream tokstr)
     return null;
 }
 
-/// Test tryParseObjTypeSpec
-unittest
-{
-    void testTryParseObjTypeSpec(string code, Type etype)
-    {
-        auto tokstr = TokenStream(code, "testTryParseObjTypeSpec.c");
-        auto type = tryParseObjTypeSpec(tokstr);
-
-        assert(type == etype);
-    }
-
-    testTryParseObjTypeSpec(
-        "_Bool",
-        boolType
-    );
-
-    testTryParseObjTypeSpec(
-        "int",
-        intType
-    );
-
-    testTryParseObjTypeSpec(
-        "long long",
-        llongType
-    );
-
-    testTryParseObjTypeSpec(
-        "long long int",
-        llongType
-    );
-}
-
 /// intTypeSpec:
 ///     "signed" intType
 ///              ^
@@ -391,33 +420,6 @@ Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
 
             return null;
     }
-}
-
-/// Test parseIntTypeSpec
-unittest
-{
-    void testParseIntTypeSpec(string pref)(string code, Type etype)
-    {
-        auto tokstr = TokenStream(code, "testIntTypeSpec.c");
-        auto type = parseIntTypeSpec!(pref)(tokstr);
-
-        assert(type == etype);
-    }
-
-    testParseIntTypeSpec!"signed"(
-        "short int",
-        shortType
-    );
-
-    testParseIntTypeSpec!"unsigned"(
-        "long",
-        ulongType
-    );
-
-    testParseIntTypeSpec!"signed"(
-        "int",
-        intType
-    );
 }
 
 /// aggregTypeSpec:
@@ -516,4 +518,76 @@ unittest
 
     // Test string.
     testPrimary("\"dummy string\";", new StringExpr("dummy string", SrcLoc()));
+}
+
+/// Test parseIntTypeSpec
+unittest
+{
+    void testParseIntTypeSpec(string pref)(string code, Type etype)
+    {
+        auto tokstr = TokenStream(code, "testIntTypeSpec.c");
+        auto type = parseIntTypeSpec!(pref)(tokstr);
+
+        assert(type == etype);
+    }
+
+    testParseIntTypeSpec!"signed"(
+        "short int",
+        shortType
+    );
+
+    testParseIntTypeSpec!"unsigned"(
+        "long",
+        ulongType
+    );
+
+    testParseIntTypeSpec!"signed"(
+        "int",
+        intType
+    );
+}
+
+/// Test tryParseObjTypeSpec
+unittest
+{
+    void testTryParseObjTypeSpec(string code, Type etype)
+    {
+        auto tokstr = TokenStream(code, "testTryParseObjTypeSpec.c");
+        auto type = tryParseObjTypeSpec(tokstr);
+
+        assert(type == etype);
+    }
+
+    testTryParseObjTypeSpec(
+        "_Bool",
+        boolType
+    );
+
+    testTryParseObjTypeSpec(
+        "int",
+        intType
+    );
+
+    testTryParseObjTypeSpec(
+        "long long",
+        llongType
+    );
+
+    testTryParseObjTypeSpec(
+        "long long int",
+        llongType
+    );
+}
+
+/// Test parsePostfix
+unittest
+{
+    auto tokstr = TokenStream("56L", "testParsePostfix.c");
+    auto intExpr = cast(IntExpr)parsePostfix(tokstr);
+    assert(intExpr);
+    assert(intExpr.value == 56);
+    assert(intExpr.type == longType);
+
+    tokstr = TokenStream("foo()", "testParsePostfix.c");
+    auto expr = parsePostfix(tokstr);
 }
