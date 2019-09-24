@@ -42,13 +42,13 @@ shared static this()
 }
 
 /// Called when parser encounters a new environment.
-void pushEnv()
+void envPush()
 {
     curenv = new Env(curenv);
 }
 
 /// Called when parser exits an environment.
-void popEnv()
+void envPop()
 {
     curenv = curenv.parent;
 }

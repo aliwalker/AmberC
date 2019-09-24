@@ -161,6 +161,7 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
 {
     auto tok = tokstr.read();
 
+    assert(lhs !is null);
     assert(tok.kind == Token.SEP);
     assert(tok.stringVal == "(" || tok.stringVal == "[");
 
@@ -181,14 +182,21 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
         }
         // Call.
         else
-        {
-            args ~= parseAssignment(tokstr);
-            
+        {   
             // Exhaust the args.
             while (!tokstr.matchSep(")"))
             {
                 tokstr.expectSep(",");
-                args ~= parseAssignment(tokstr);
+                auto arg = parseAssignment(tokstr);
+
+                // If error occurs during parseAssignment,
+                // stop parsing the rest args.
+                if (arg is null)
+                {
+                    return null;
+                }
+
+                args ~= arg;
             }
             lhs = semaCall(lhs, args, SrcLoc(tok.pos, tokstr.filename));
         }
@@ -588,6 +596,15 @@ unittest
     assert(intExpr.value == 56);
     assert(intExpr.type == longType);
 
+    auto fooFunc = new FuncDecl(
+        getFuncType(intType, []),
+        "foo",
+        null,
+        SrcLoc()
+    );
+    assert(fooFunc);
+    envPush();
+    envAddDecl("foo", fooFunc);
     tokstr = TokenStream("foo()", "testParsePostfix.c");
     auto expr = parsePostfix(tokstr);
 }
