@@ -109,27 +109,47 @@ class Type
         return kind == otherTy.kind;
     }
 
+    /// Qualifier string.
+    string qualString() const
+    {
+        string[] quals;
+
+        if (qual & QUAL_CONST)
+        {
+            quals ~= "const";
+        }
+
+        if (qual & QUAL_REG)
+        {
+            quals ~= "register";
+        }
+
+        if (quals.empty)
+            return "";
+
+        return quals.join(" ") ~ " ";
+    }
+
     override string toString() const
     {
         switch (kind)
         {
-            case VOID:      return "void";
-            case BOOL_:     return "Bool_";
-            case CHAR:      return "char";
-            case SCHAR:     return "signed char";
-            case SHORT:     return "short";
-            case INT:       return "int";
-            case LONG:      return "long";
-            case LLONG:     return "long long";
-            case FLOAT:     return "float";
-            case UCHAR:     return "unsigned char";
-            case USHORT:    return "unsigned short";
-            case UINT:      return "unsigned";
-            case ULONG:     return "unsigned long";
-            case ULLONG:    return "unsigned long long";
-            case DOUBLE:    return "double";
-            // case ENUM:
-            case DERV:      return "derived";
+            case VOID:      return qualString() ~ "void";
+            case BOOL_:     return qualString() ~ "Bool_";
+            case CHAR:      return qualString() ~ "char";
+            case SCHAR:     return qualString() ~ "signed char";
+            case SHORT:     return qualString() ~ "short";
+            case INT:       return qualString() ~ "int";
+            case LONG:      return qualString() ~ "long";
+            case LLONG:     return qualString() ~ "long long";
+            case FLOAT:     return qualString() ~ "float";
+            case UCHAR:     return qualString() ~ "unsigned char";
+            case USHORT:    return qualString() ~ "unsigned short";
+            case UINT:      return qualString() ~ "unsigned";
+            case ULONG:     return qualString() ~ "unsigned long";
+            case ULLONG:    return qualString() ~ "unsigned long long";
+            case DOUBLE:    return qualString() ~ "double";
+            case DERV:      return qualString() ~ "derived";
             default:
                 return "";
         }
@@ -200,6 +220,9 @@ class RecType : Type
         bool isUnion = false, 
         uint8_t qual = 0)
     {
+        // A name will be assigned even for an anonymous
+        // struct/union.
+        assert(name !is null);
         super(DERV, qual);
 
         this.name = name;
@@ -261,15 +284,7 @@ class RecType : Type
 
     override string toString() const
     {
-        string tystr = (isUnion ? "union(" : "struct(") ~ name ~ ")(";
-
-        foreach (i, m; members)
-        {
-            tystr ~= (i == members.length - 1)
-                ? m.type.toString
-                : m.type.toString ~ ",";
-        }
-        return tystr ~ ")";
+        return qualString() ~ (isUnion ? "union " : "struct ") ~ name;
     }
 }
 
@@ -329,17 +344,32 @@ class FuncType : Type
         return true;
     }
 
-    override string toString() const
+    private string paramString() const
     {
-        string tystr = retType.toString() ~ "(*)(";
-
+        auto ap = appender!string();
+        
+        ap.put("(");
         foreach (i, p; params)
         {
-            tystr ~= (i == (params.length - 1))
-                ? p.toString()
-                : p.toString() ~ ",";
+            if (i == (params.length - 1))
+            {
+                ap.put(p.toString() ~ ")");
+            }
+            else
+            {
+                ap.put(p.toString() ~ ",");
+            }
         }
-        return tystr ~ ")";
+        return ap.data;
+    }
+
+    override string toString() const
+    {
+        return format!"%s(*%s)%s"(
+            retType.toString(),
+            qualString(),
+            paramString()
+        );
     }
 }
 
@@ -386,6 +416,18 @@ class ArrayType : Type
 
     override string toString() const
     {
+        // Array of FuncType ptrs.
+        auto funcType = cast(FuncType)elemTy;
+        if (funcType)
+        {
+            return format!"%s(*%s [%s])%s"(
+                funcType.retType.toString(),
+                funcType.qualString(),
+                size,
+                funcType.paramString()
+            );
+        }
+
         return format!"%s[%s]"(elemTy.toString, size);
     }
 }
@@ -429,6 +471,23 @@ class PtrType : Type
 
     override string toString() const
     {
+        // Ptr to FuncType.
+        auto funcType = cast(FuncType)base;
+        if (funcType)
+        {
+            return funcType.toString();
+        }
+
+        // Ptr to ArrayType.
+        auto arrayType = cast(ArrayType)base;
+        if (arrayType)
+        {
+            return format!"%s(*)[%s]"(
+                arrayType.elemTy,
+                arrayType.size
+            );
+        }
+
         return base.toString() ~ "*";
     }
 }
@@ -739,6 +798,24 @@ unittest
     auto funcTy = new FuncType(voidType, [intPtrTy]);
     assert(funcTy.toString == "void(*)(int*)");
 
+    /// Ptr to array.
+    auto ptrToIntOfThree = new PtrType(
+        new ArrayType(intType, 3)
+    );
+    assert(ptrToIntOfThree.toString == "int(*)[3]");
+
+    /// Ptr to function.
+    auto ptrToFunc = new PtrType(
+        funcTy
+    );
+    assert(ptrToFunc.toString == "void(*)(int*)");
+
+    auto arrOfFunc = new ArrayType(
+        funcTy,
+        3
+    );
+    assert(arrOfFunc.toString == "void(* [3])(int*)");
+
     /// RecType.
     auto fooStrucTy = makeStrucType(
         "fooStruc",
@@ -747,7 +824,7 @@ unittest
             RecField(longType, "bar")
         ]
     );
-    assert(fooStrucTy.toString == "struct(fooStruc)(int,long)");
+    assert(fooStrucTy.toString == "struct fooStruc");
     auto barUnionTy = makeUnionType(
         "barUnion",
         [
@@ -755,7 +832,7 @@ unittest
             RecField(longType, "bar")
         ]
     );
-    assert(barUnionTy.toString == "union(barUnion)(int,long)");
+    assert(barUnionTy.toString == "union barUnion");
 }
 
 /// Test getXXXType.
