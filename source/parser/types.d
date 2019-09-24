@@ -46,8 +46,11 @@ class Type
     }
     Kind kind;
 
+    /// Qualifiers.
+    uint8_t qual;
+
     /// Constructor for a base type in C.
-    this(Kind kind)
+    this(Kind kind, uint8_t qual = 0)
     {
         assert(
             kind == VOID    ||
@@ -69,6 +72,7 @@ class Type
             kind == DERV
         );
         this.kind = kind;
+        this.qual = qual;
     }
 
     /// C's sizeof operator.
@@ -190,9 +194,13 @@ class RecType : Type
     Field[] members;
 
     /// Constructor.
-    this(string name, Field[] members, bool isUnion = false)
+    this(
+        string name, 
+        Field[] members, 
+        bool isUnion = false, 
+        uint8_t qual = 0)
     {
-        super(DERV);
+        super(DERV, qual);
 
         this.name = name;
         this.members = members;
@@ -278,9 +286,9 @@ class FuncType : Type
     Type[] params;
 
     /// Constructor.
-    this(Type retType, Type[] params)
+    this(Type retType, Type[] params, uint8_t qual = 0)
     {
-        super(DERV);
+        super(DERV, qual);
 
         this.retType = retType;
         this.params = params;
@@ -345,9 +353,9 @@ class ArrayType : Type
     size_t size;
 
     /// Constructor.
-    this(Type elemTy, size_t size)
+    this(Type elemTy, size_t size, uint8_t qual = 0)
     {
-        super(DERV);
+        super(DERV, qual);
 
         this.elemTy = elemTy;
         this.size = size;
@@ -389,9 +397,9 @@ class PtrType : Type
     Type base;
 
     /// Constructor.
-    this(Type base)
+    this(Type base, uint8_t qual = 0)
     {
-        super(DERV);
+        super(DERV, qual);
 
         this.base = base;
     }

@@ -255,6 +255,38 @@ Type tryParseObjTypeSpec(ref TokenStream tokstr)
     return null;
 }
 
+/// Test tryParseObjTypeSpec
+unittest
+{
+    void testTryParseObjTypeSpec(string code, Type etype)
+    {
+        auto tokstr = TokenStream(code, "testTryParseObjTypeSpec.c");
+        auto type = tryParseObjTypeSpec(tokstr);
+
+        assert(type == etype);
+    }
+
+    testTryParseObjTypeSpec(
+        "_Bool",
+        boolType
+    );
+
+    testTryParseObjTypeSpec(
+        "int",
+        intType
+    );
+
+    testTryParseObjTypeSpec(
+        "long long",
+        llongType
+    );
+
+    testTryParseObjTypeSpec(
+        "long long int",
+        llongType
+    );
+}
+
 /// intTypeSpec:
 ///     "signed" intType
 ///              ^
@@ -327,6 +359,33 @@ Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
 
             return null;
     }
+}
+
+/// Test parseIntTypeSpec
+unittest
+{
+    void testParseIntTypeSpec(string pref)(string code, Type etype)
+    {
+        auto tokstr = TokenStream(code, "testIntTypeSpec.c");
+        auto type = parseIntTypeSpec!(pref)(tokstr);
+
+        assert(type == etype);
+    }
+
+    testParseIntTypeSpec!"signed"(
+        "short int",
+        shortType
+    );
+
+    testParseIntTypeSpec!"unsigned"(
+        "long",
+        ulongType
+    );
+
+    testParseIntTypeSpec!"signed"(
+        "int",
+        intType
+    );
 }
 
 /// aggregTypeSpec:
