@@ -118,7 +118,18 @@ Expr parseUnary(ref TokenStream tokstr)
                     tokop.stringVal, 
                     SrcLoc(tokop.pos, tokstr.filename));
             
-            //case "sizeof":      return semaSizeof();
+            case "sizeof":
+                // the opnd of "sizeof" operator is not evaluated.
+                return new IntExpr(
+                    uintType, 
+                    rhs.type.typeSize,
+                    rhs.loc);
+
+            case "&":
+                return semaAddrof(
+                    rhs, 
+                    SrcLoc(tokop.pos, 
+                    tokstr.filename));
 
             default:
                 assert(false);

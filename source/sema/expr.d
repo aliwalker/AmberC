@@ -61,11 +61,20 @@ UnaryExpr semaIncrDecr(string prepost)(Expr opnd, string op, SrcLoc opLoc)
         const DECR = UnaryExpr.POST_DECR;
     }
 
-    // lhs must be an lvalue.
+    // opnd must be an lvalue.
     if (!isLvalue(opnd))
     {
         return semaErrExpr!UnaryExpr(
             "expected an lvalue",
+            opnd.loc
+        );
+    }
+
+    // opnd must not be const qualified.
+    if (opnd.type.qual & QUAL_CONST)
+    {
+        return semaErrExpr!UnaryExpr(
+            format!"cannot assign to a const qualified type '%s' lvalue"(opnd.type),
             opnd.loc
         );
     }
@@ -133,6 +142,12 @@ MemberExpr semaRecAccess(Expr struc, string ident, SrcLoc loc)
     return new MemberExpr(recType.members[idx].type, struc, ident, loc);
 }
 
+/// Semantic action on "&" operator.
+UnaryExpr semaAddrof(Expr opnd, SrcLoc amploc)
+{
+    return null;
+}
+
 /// Semantic action on array access.
 UnaryExpr semaDeref(Expr base, Expr idx = null)
 {
@@ -158,6 +173,7 @@ UnaryExpr semaDeref(Expr base, Expr idx = null)
     else if (ptrType)
     {
         elemTy = ptrType.base;
+        elemTy.qual = ptrType.qual;
     }
 
     else
