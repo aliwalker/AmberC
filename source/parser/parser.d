@@ -100,8 +100,10 @@ Expr parseIncrDecrSfx(ref TokenStream tokstr, Expr lhs)
     auto tok = tokstr.read();
     assert(tok.kind == Token.SEP);
     assert(tok.stringVal == "++" || tok.stringVal == "--");
+    assert(lhs);
 
     while (
+        lhs &&
         (tok.kind == Token.SEP) &&
         (tok.stringVal == "++" || tok.stringVal == "--")
     )
@@ -121,8 +123,10 @@ Expr parseRecAccess(ref TokenStream tokstr, Expr lhs)
     auto tok = tokstr.read();
     assert(tok.kind == Token.SEP);
     assert(tok.stringVal == "." || tok.stringVal == "->");
+    assert(lhs);
 
     while (
+        lhs &&
         (tok.kind == Token.SEP) &&
         (tok.stringVal == "." || tok.stringVal == "->")
     )
@@ -168,6 +172,7 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
     Expr[] args;
 
     while (
+        lhs &&
         (tok.kind == Token.SEP) &&
         ((tok.stringVal == "(") || 
         (tok.stringVal == "["))
@@ -606,5 +611,8 @@ unittest
     envPush();
     envAddDecl("foo", fooFunc);
     tokstr = TokenStream("foo()", "testParsePostfix.c");
-    auto expr = parsePostfix(tokstr);
+    auto expr = cast(CallExpr)parsePostfix(tokstr);
+    assert(expr);
+    assert(cast(IdentExpr)expr.callee);
+    envPop();
 }

@@ -47,6 +47,7 @@ private bool isLvalue(Expr expr)
 /// Semantic action on postfix
 UnaryExpr semaIncrDecrSfx(Expr opnd, string op, SrcLoc opLoc)
 {
+    assert(opnd);
     assert(op == "++" || op == "--");
 
     // lhs must be an lvalue.
@@ -87,6 +88,7 @@ UnaryExpr semaIncrDecrSfx(Expr opnd, string op, SrcLoc opLoc)
 /// Semantic action on RecType member access.
 MemberExpr semaRecAccess(Expr lhs, string op, string ident, SrcLoc loc)
 {
+    assert(lhs);
     assert(op == "." || op == "->");
 
     // The record type.
@@ -152,6 +154,8 @@ MemberExpr semaRecAccess(Expr lhs, string op, string ident, SrcLoc loc)
 /// Semantic action on array access.
 UnaryExpr semaArrayDeref(Expr base, Expr idx)
 {
+    assert(base && idx);
+
     auto arrayTy = cast(ArrayType)(base.type);
     auto ptrTy = cast(PtrType)(base.type);
     Type elemTy;
@@ -209,6 +213,7 @@ UnaryExpr semaArrayDeref(Expr base, Expr idx)
 /// Semantic action on call expression.
 CallExpr semaCall(Expr callee, Expr[] args, SrcLoc parenLoc)
 {
+    assert(callee);
     auto ftype = cast(FuncType)(callee.type);
 
     // Error if callee is not a function.
@@ -239,6 +244,15 @@ CallExpr semaCall(Expr callee, Expr[] args, SrcLoc parenLoc)
     // Check arity.
     if (ftype.params.length != args.length)
     {
+        // The "void" param is preserved, so we'll deal with it here.
+        if (
+            (ftype.params.length == 1) &&
+            (ftype.params[0] == voidType) &&
+            (args.length == 0))
+        {
+            return new CallExpr(ftype.retType, callee, [], parenLoc);
+        }
+
         return semaErrExpr!CallExpr(
             "unmatched number of arguments for function",
             callee.loc

@@ -221,6 +221,7 @@ class MemberExpr : Expr
     /// Constructor.
     this(Type resType, Expr struc, string op, string name, SrcLoc loc)
     {
+        assert(resType !is null);
         assert(struc !is null);
         assert(op !is null);
         assert(name !is null);
@@ -299,6 +300,7 @@ class AssignExpr : Expr
     /// Constructor.
     this(Type resType, string op, Expr lhs, Expr rhs, SrcLoc loc)
     {
+        assert(resType);
         assert(lhs !is null && rhs !is null);
         assert(lhs.type == resType);
         assert(

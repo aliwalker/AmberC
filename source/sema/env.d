@@ -18,9 +18,6 @@ class Env
     /// Declarations within this env.
     Decl[string] names;
 
-    /// Unresolved identifiers.
-    IdentExpr[string] unresolved;
-
     alias ExitCallback = void delegate();
     /// Callbacks on exit of the env.
     ExitCallback[] cb;
@@ -148,18 +145,6 @@ Decl envGResolv(string name)
     }
 
     return null;
-}
-
-/// Adds an unresolved global name.
-void envUnresolv(string name, IdentExpr ident)
-{
-    glenv.unresolved[name] = ident;
-}
-
-/// Whether [name] is an unresolved name.
-bool isUnresolved(string name)
-{
-    return (name in glenv.unresolved) is null;
 }
 
 /// Return true if [decl] is a local declaration.
