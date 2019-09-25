@@ -106,7 +106,7 @@ UnaryExpr semaIncrDecr(string prepost)(Expr opnd, string op, SrcLoc opLoc)
 }
 
 /// Semantic action on RecType member access.
-MemberExpr semaRecAccess(Expr struc, string ident, SrcLoc loc)
+MemberExpr semaMemberExpr(Expr struc, string ident, SrcLoc loc)
 {
     assert(struc);
     ulong findMemberIdx(RecType recType, string name)
@@ -145,7 +145,28 @@ MemberExpr semaRecAccess(Expr struc, string ident, SrcLoc loc)
 /// Semantic action on "&" operator.
 UnaryExpr semaAddrof(Expr opnd, SrcLoc amploc)
 {
-    return null;
+    if (!isLvalue(opnd))
+    {
+        return semaErrExpr!UnaryExpr(
+            format!"cannot take the address of an rvalue of type '%s'"(opnd.type),
+            amploc
+        );
+    }
+
+    if (opnd.type.qual & QUAL_REG)
+    {
+        return semaErrExpr!UnaryExpr(
+            "cannot take the address of a register variable",
+            amploc
+        );
+    }
+
+    return new UnaryExpr(
+        UnaryExpr.ADDR_OF,
+        getPtrType(opnd.type),
+        opnd,
+        amploc
+    );
 }
 
 /// Semantic action on array access.

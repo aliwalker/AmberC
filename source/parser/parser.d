@@ -131,6 +131,9 @@ Expr parseUnary(ref TokenStream tokstr)
                     SrcLoc(tokop.pos, 
                     tokstr.filename));
 
+            case "*":
+
+
             default:
                 assert(false);
         }
@@ -230,7 +233,7 @@ Expr parseRecAccess(ref TokenStream tokstr, Expr struc)
             return null;
         }
 
-        struc = semaRecAccess(
+        struc = semaMemberExpr(
             struc, 
             tokIdent.stringVal, 
             SrcLoc(tokIdent.pos, tokstr.filename)
