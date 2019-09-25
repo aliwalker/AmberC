@@ -212,24 +212,19 @@ class MemberExpr : Expr
     /// The structure to reference.
     Expr struc;
 
-    /// "." or "->"
-    string op;
-
     /// Member name.
     string name;
 
     /// Constructor.
-    this(Type resType, Expr struc, string op, string name, SrcLoc loc)
+    this(Type resType, Expr struc, string name, SrcLoc loc)
     {
         assert(resType !is null);
         assert(struc !is null);
-        assert(op !is null);
         assert(name !is null);
         assert(cast(RecType)(struc.type) !is null);
 
         super(resType, loc);
         this.struc = struc;
-        this.op = op;
         this.name = name;
     }
 }

@@ -44,11 +44,22 @@ private bool isLvalue(Expr expr)
     return false;
 }
 
-/// Semantic action on postfix
-UnaryExpr semaIncrDecrSfx(Expr opnd, string op, SrcLoc opLoc)
+/// Semantic action on increment and decrement uop.
+UnaryExpr semaIncrDecr(string prepost)(Expr opnd, string op, SrcLoc opLoc)
 {
     assert(opnd);
     assert(op == "++" || op == "--");
+    static assert((prepost == "pre") || (prepost == "post"));
+    static if (prepost == "pre")
+    {
+        const INCR = UnaryExpr.PREF_INCR;
+        const DECR = UnaryExpr.PREF_DECR;
+    }
+    else
+    {
+        const INCR = UnaryExpr.POST_INCR;
+        const DECR = UnaryExpr.POST_DECR;
+    }
 
     // lhs must be an lvalue.
     if (!isLvalue(opnd))
@@ -78,7 +89,7 @@ UnaryExpr semaIncrDecrSfx(Expr opnd, string op, SrcLoc opLoc)
     }
 
     return new UnaryExpr(
-        (op == "++") ? UnaryExpr.POST_INCR : UnaryExpr.POST_DECR,
+        (op == "++") ? INCR : DECR,
         opnd.type,
         opnd,
         opLoc
@@ -86,14 +97,9 @@ UnaryExpr semaIncrDecrSfx(Expr opnd, string op, SrcLoc opLoc)
 }
 
 /// Semantic action on RecType member access.
-MemberExpr semaRecAccess(Expr lhs, string op, string ident, SrcLoc loc)
+MemberExpr semaRecAccess(Expr struc, string ident, SrcLoc loc)
 {
-    assert(lhs);
-    assert(op == "." || op == "->");
-
-    // The record type.
-    RecType recType;
-
+    assert(struc);
     ulong findMemberIdx(RecType recType, string name)
     {
         foreach (i, m; recType.members)
@@ -106,38 +112,14 @@ MemberExpr semaRecAccess(Expr lhs, string op, string ident, SrcLoc loc)
         return recType.members.length;
     }
 
-    // lhs is a ptr.
-    if (op == "->")
-    {
-        auto recPtrType = cast(PtrType)(lhs.type);
-        if (recPtrType is null)
-        {
-            return semaErrExpr!MemberExpr(
-                format!"member reference type '%s' is not a pointer"(lhs.type),
-                lhs.loc
-            );
-        }
 
-        recType = cast(RecType)(recPtrType);
-        if (recType is null)
-        {
-            return semaErrExpr!MemberExpr(
-                format!"member reference base type '%s' is not a struct or union"(recPtrType),
-                lhs.loc
-            );
-        }
-    }
-    // lhs must be of a struct or union type.
-    else
+    auto recType = cast(RecType)(struc.type);
+    if (recType is null)
     {
-        recType = cast(RecType)(lhs.type);
-        if (recType is null)
-        {
-            return semaErrExpr!MemberExpr(
-                format!"member reference base type '%s' is not a struct or union"(lhs.type),
-                lhs.loc
-            );
-        }
+        return semaErrExpr!MemberExpr(
+            format!"member reference base type '%s' is not a struct or union"(struc.type),
+            struc.loc
+        );
     }
 
     auto idx = findMemberIdx(recType, ident);
@@ -148,34 +130,34 @@ MemberExpr semaRecAccess(Expr lhs, string op, string ident, SrcLoc loc)
             loc
         );
     }
-    return new MemberExpr(recType.members[idx].type, lhs, op, ident, loc);
+    return new MemberExpr(recType.members[idx].type, struc, ident, loc);
 }
 
 /// Semantic action on array access.
-UnaryExpr semaArrayDeref(Expr base, Expr idx)
+UnaryExpr semaDeref(Expr base, Expr idx = null)
 {
-    assert(base && idx);
+    assert(base);
 
-    auto arrayTy = cast(ArrayType)(base.type);
-    auto ptrTy = cast(PtrType)(base.type);
+    auto arrayType = cast(ArrayType)(base.type);
+    auto ptrType = cast(PtrType)(base.type);
     Type elemTy;
 
     // When base is of ArrayType, decay array to pointer.
-    if (arrayTy)
+    if (arrayType)
     {
-        auto elemPtrTy = getPtrType(arrayTy.elemTy);
-
-        elemTy = arrayTy.elemTy;
+        elemTy = arrayType.elemTy;
         base = new UnaryExpr(
             UnaryExpr.DECAY, 
-            elemPtrTy, 
+            getPtrType(arrayType.elemTy), 
             base, 
             base.loc);
     }
 
-    else if (ptrTy)
+    // Whne base is of PtrType, the result type will be
+    // the pointee type.
+    else if (ptrType)
     {
-        elemTy = ptrTy.base;
+        elemTy = ptrType.base;
     }
 
     else
@@ -186,27 +168,31 @@ UnaryExpr semaArrayDeref(Expr base, Expr idx)
         );
     }
 
-    if (!isInteger(idx.type))
+    // idx is an optional offset.
+    if (idx)
     {
-        return semaErrExpr!UnaryExpr(
-            "array subscript is not an integer",
-            idx.loc
+        if (!isInteger(idx.type))
+        {
+            return semaErrExpr!UnaryExpr(
+                "array subscript is not an integer",
+                idx.loc
+            );
+        }
+
+        base = new BinExpr(
+            base.type,  /* Type of the + result. */
+            "+",        /* op */
+            base,       /* lhs */
+            idx,        /* rhs */
+            base.loc
         );
     }
-
-    auto addrExpr = new BinExpr(
-        base.type, 
-        "+",
-        base,
-        idx,
-        base.loc
-    );
 
     return new UnaryExpr(
         UnaryExpr.DEREF,
         elemTy,
-        addrExpr,
-        addrExpr.loc
+        base,
+        base.loc
     );
 }
 

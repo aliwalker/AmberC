@@ -47,6 +47,7 @@ void envPush()
 /// Called when parser exits an environment.
 void envPop()
 {
+    assert(curenv);
     curenv = curenv.parent;
 }
 

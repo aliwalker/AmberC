@@ -49,11 +49,18 @@ private bool compTokStr(Token tok, int kind, string val)
     return (tok.kind == kind) && (tok.stringVal == val);
 }
 
-private bool isPostfixOp(Token tok)
+private bool isPostfixUOp(Token tok)
 {
     auto pfx = ["++", "--", ".", "->", "[", "("];
 
     return any!((val) => compTokStr(tok, Token.SEP, val))(pfx);
+}
+
+private bool isPrefixUOp(Token tok)
+{
+    auto uop = ["++", "--", "sizeof", "&", "*", "+", "-", "~", "!"];
+
+    return any!((val) => compTokStr(tok, Token.SEP, val))(uop);
 }
 
 private bool isQualifier(Token tok)
@@ -80,6 +87,50 @@ Expr parseAssignment(ref TokenStream tokstr)
     return null;
 }
 
+/// Unary:
+///     postfix
+///     ("++" | "--") unary
+///     uop unary
+///     "sizeof" unary
+///     "sizeof" '(' type-name ')'
+///     ^
+Expr parseUnary(ref TokenStream tokstr)
+{
+    if (tokstr.peek().isPrefixUOp())
+    {
+        auto tokop = tokstr.read();
+        // TODO:
+        // Handle "sizeof" '(' type-name ')' separately.
+
+        auto rhs = parseUnary(tokstr);
+
+        // Handle parsing/semantic errors.
+        if (rhs is null)
+        {
+            return null;
+        }
+
+        switch (tokop.stringVal)
+        {
+            case "++", "--":
+                return semaIncrDecr!"pre"(
+                    rhs, 
+                    tokop.stringVal, 
+                    SrcLoc(tokop.pos, tokstr.filename));
+            
+            //case "sizeof":      return semaSizeof();
+
+            default:
+                assert(false);
+        }
+    }
+    // Descend to postfix.
+    else
+    {
+        return parsePostfix(tokstr);
+    }
+}
+
 /// Postfix:
 ///     primary operators*
 ///     ^
@@ -92,7 +143,7 @@ Expr parsePostfix(ref TokenStream tokstr)
     auto expr = parsePrimary(tokstr);
 
     // Exhaust postfix operators.
-    while (expr && isPostfixOp(tokstr.peek()))
+    while (expr && isPostfixUOp(tokstr.peek()))
     {
         switch (tokstr.peek().stringVal)
         {
@@ -122,7 +173,7 @@ Expr parseIncrDecrSfx(ref TokenStream tokstr, Expr lhs)
         (tok.stringVal == "++" || tok.stringVal == "--")
     )
     {
-        lhs = semaIncrDecrSfx(lhs, tok.stringVal, SrcLoc(tok.pos, tokstr.filename));
+        lhs = semaIncrDecr!"post"(lhs, tok.stringVal, SrcLoc(tok.pos, tokstr.filename));
         tok = tokstr.read();
     }
     tokstr.unread();
@@ -132,15 +183,15 @@ Expr parseIncrDecrSfx(ref TokenStream tokstr, Expr lhs)
 /// Rec-access:
 ///     (('.' | '->') identifier)+
 ///     ^
-Expr parseRecAccess(ref TokenStream tokstr, Expr lhs)
+Expr parseRecAccess(ref TokenStream tokstr, Expr struc)
 {
     auto tok = tokstr.read();
     assert(tok.kind == Token.SEP);
     assert(tok.stringVal == "." || tok.stringVal == "->");
-    assert(lhs);
+    assert(struc);
 
     while (
-        lhs &&
+        struc &&
         (tok.kind == Token.SEP) &&
         (tok.stringVal == "." || tok.stringVal == "->")
     )
@@ -156,9 +207,20 @@ Expr parseRecAccess(ref TokenStream tokstr, Expr lhs)
             );
         }
 
-        lhs = semaRecAccess(
-            lhs, 
-            tok.stringVal, 
+        // Deref the pointer.
+        if (tok.stringVal == "->")
+        {
+            struc = semaDeref(struc);
+        }
+
+        // Stop the rest if deref error.
+        if (struc is null)
+        {
+            return null;
+        }
+
+        struc = semaRecAccess(
+            struc, 
             tokIdent.stringVal, 
             SrcLoc(tokIdent.pos, tokstr.filename)
         );
@@ -167,7 +229,7 @@ Expr parseRecAccess(ref TokenStream tokstr, Expr lhs)
     }
 
     tokstr.unread();
-    return lhs;
+    return struc;
 }
 
 /// Call-and-subs:
@@ -196,7 +258,7 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
         if (tok.stringVal == "[")
         {
             auto idx = parseExpr(tokstr);
-            lhs = semaArrayDeref(lhs, idx);
+            lhs = semaDeref(lhs, idx);
             expectSep(tokstr, "]");
         }
         // Call.
@@ -230,9 +292,9 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
 
 /// primary-expression:
 ///     identifier
-///     constant
-///     string-literal
-///     paren
+///     | constant
+///     | string-literal
+///     | paren
 Expr parsePrimary(ref TokenStream tokstr)
 {
     auto tok = tokstr.read();
@@ -245,7 +307,14 @@ Expr parsePrimary(ref TokenStream tokstr)
         case Token.FLOAT:   return semaFloat(tok.floatVal, tok.fsfx, loc);
         case Token.STRING:  return new StringExpr(tok.stringVal, loc);
         case Token.SEP:
-            assert(tok.stringVal == "(");
+            if (tok.stringVal != "(")
+            {
+                return parseError(
+                    tokstr,
+                    "expect '('",
+                    SrcLoc(tok.pos, tokstr.filename)
+                );
+            }
             return parseParen(tokstr);
 
         default:
@@ -254,9 +323,8 @@ Expr parsePrimary(ref TokenStream tokstr)
 }
 
 /// paren:
-///     (expr)                      - grouping.
-///     ^
-///     (type) { initalizer-list }  - compound literal.
+///     (expr)                             - grouping.
+///     | (type - name) { initalizer-list }  - compound literal.
 ///     ^
 Expr parseParen(ref TokenStream tokstr)
 {
@@ -600,18 +668,36 @@ unittest
     assert(intExpr.value == 56);
     assert(intExpr.type == longType);
 
-    auto fooFunc = new FuncDecl(
-        getFuncType(intType, []),
+    void testParseCallExpr(FuncDecl funcDecl, string argstr = "")
+    {
+        assert(funcDecl);
+        envPush();
+        envAddDecl(funcDecl.name, funcDecl);
+        
+        auto tokstr = TokenStream(
+            format!"%s(%s)"(funcDecl.name, argstr), 
+            "testParseCallExpr.c"
+        );
+        auto expr = cast(CallExpr)parsePostfix(tokstr);
+        assert(expr);
+        assert(cast(IdentExpr)expr.callee);
+
+        envPop();
+    }
+
+    /// Test function with no arg.
+    testParseCallExpr(new FuncDecl(
+        getFuncType(intType, []),/* function type */
+        "foo",                   /* function name */
+        null,                    /* AST of the function body. */
+        SrcLoc()
+    ));
+
+    // func with "void" as arg.
+    testParseCallExpr(new FuncDecl(
+        getFuncType(intType, [voidType]),
         "foo",
         null,
         SrcLoc()
-    );
-    assert(fooFunc);
-    envPush();
-    envAddDecl("foo", fooFunc);
-    tokstr = TokenStream("foo()", "testParsePostfix.c");
-    auto expr = cast(CallExpr)parsePostfix(tokstr);
-    assert(expr);
-    assert(cast(IdentExpr)expr.callee);
-    envPop();
+    ));
 }
