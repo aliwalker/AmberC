@@ -5,6 +5,7 @@ module parser.parser;
 
 import std.stdint;
 import std.format;
+import std.algorithm;
 import parser.ast;
 import parser.lexer;
 import parser.types;
@@ -39,6 +40,33 @@ private void expectSep(ref TokenStream tokstr, string sep)
     }
 }
 
+/**
+Helpers for comparing token.stringVal
+*/
+
+private bool compTokStr(Token tok, int kind, string val)
+{
+    return (tok.kind == kind) && (tok.stringVal == val);
+}
+
+private bool isPostfixOp(Token tok)
+{
+    auto pfx = ["++", "--", ".", "->", "[", "("];
+
+    return any!((val) => compTokStr(tok, Token.SEP, val))(pfx);
+}
+
+private bool isQualifier(Token tok)
+{
+    return any!((val) => compTokStr(tok, Token.KW, val))(tqualkw);
+}
+
+/**
+
+Expressions.
+
+*/
+
 /// expression:
 ///
 Expr parseExpr(ref TokenStream tokstr)
@@ -50,20 +78,6 @@ Expr parseExpr(ref TokenStream tokstr)
 Expr parseAssignment(ref TokenStream tokstr)
 {
     return null;
-}
-
-private bool isPostfixOp(Token tok)
-{
-    if (tok.kind != Token.SEP)
-    {
-        return false;
-    }
-    return ((tok.stringVal == "++") ||
-            (tok.stringVal == "--") ||
-            (tok.stringVal == ".")  ||
-            (tok.stringVal == "->") ||
-            (tok.stringVal == "[")  ||
-            (tok.stringVal == "("));
 }
 
 /// Postfix:
@@ -270,24 +284,9 @@ Type tryParseTypeName(ref TokenStream tokstr)
 /// Try to parse a qualifier.
 uint8_t tryParseTypeQual(ref TokenStream tokstr)
 {
-    bool isQual(Token tok)
-    {
-        if (tok.kind != Token.KW)
-        {
-            return false;
-        }
-
-        foreach (q; tqualkw)
-        {
-            if (q == tok.stringVal)
-                return true;
-        }
-        return false;
-    }
-
     uint8_t quals = 0;
     auto tok = tokstr.read();
-    while (isQual(tok))
+    while (isQualifier(tok))
     {
         switch (tok.stringVal)
         {
@@ -295,7 +294,7 @@ uint8_t tryParseTypeQual(ref TokenStream tokstr)
             case "register": quals |= QUAL_REG; break;
             default:
                 report(
-                    SVR_ERR,
+                    SVR_WARN,
                     format!"qualifier '%s' is not implemented"(tok.stringVal),
                     SrcLoc(tok.pos, tokstr.filename),
                 );
