@@ -548,12 +548,6 @@ class VarDecl : Decl
         this.initVals = initVals;
     }
 
-    /// Constructor. Single InitExpr.
-    this(Type type, string name, InitExpr initVal, SrcLoc loc)
-    {
-        this(type, name, [initVal], loc);
-    }
-
     /// Whether the variable being declared is of type T.
     bool isofType(T)() const
     {

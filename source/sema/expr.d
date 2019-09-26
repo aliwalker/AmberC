@@ -165,7 +165,7 @@ UnaryExpr semaIncrDecr(string prepost)(Expr opnd, string op, SrcLoc opLoc)
         (op == "++") ? INCR : DECR,
         opnd.type,
         opnd,
-        opLoc
+        (INCR == UnaryExpr.PREF_INCR) ? opLoc : opnd.loc
     );
 }
 

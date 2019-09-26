@@ -611,14 +611,15 @@ private string __preRecTypeStr;
 RecType getRecType(
     string name, 
     out string tystr = __preRecTypeStr, 
-    bool isUnion = false)
+    bool isUnion = false,
+    uint8_t qual = 0)
 {
     if (name == "")
     {
         name = format!"anon%s"(RecType.anonId++);
     }
 
-    tystr = new RecType(name, null, isUnion).toString();
+    tystr = new RecType(name, null, isUnion, qual).toString();
 
     return getType!(RecType)(
         tystr,
@@ -630,9 +631,10 @@ RecType getRecType(
     string name,
     RecField[] fields, 
     out string tystr = __preRecTypeStr,
-    bool isUnion = false)
+    bool isUnion = false,
+    uint8_t qual = 0)
 {
-    auto ty = getRecType(name, tystr, isUnion);
+    auto ty = getRecType(name, tystr, isUnion, qual);
 
     // Already complete.
     if (ty.members !is null)
@@ -650,9 +652,9 @@ RecType getRecType(
 }
 
 /// Get or create an array type.
-ArrayType getArrayType(Type elemTy, size_t size)
+ArrayType getArrayType(Type elemTy, size_t size, uint8_t qual = 0)
 {
-    auto astr = new ArrayType(elemTy, size).toString();
+    auto astr = new ArrayType(elemTy, size, qual).toString();
     
     return getType!(ArrayType)(
         astr,
@@ -660,9 +662,9 @@ ArrayType getArrayType(Type elemTy, size_t size)
 }
 
 /// Get or create a function type.
-FuncType getFuncType(Type retType, Type[] params)
+FuncType getFuncType(Type retType, Type[] params, uint8_t qual = 0)
 {
-    auto fstr = new FuncType(retType, params).toString();
+    auto fstr = new FuncType(retType, params, qual).toString();
     
     return getType!(FuncType)(
         fstr, 
@@ -670,13 +672,13 @@ FuncType getFuncType(Type retType, Type[] params)
 }
 
 /// Get or create a pointer type.
-PtrType getPtrType(Type base)
+PtrType getPtrType(Type base, uint8_t qual = 0)
 {
     auto bastr = base.toString();
 
     return getType!(PtrType)(
         bastr, 
-        { return new PtrType(base); });
+        { return new PtrType(base, qual); });
 }
 
 /// Helper for iterating record fields.

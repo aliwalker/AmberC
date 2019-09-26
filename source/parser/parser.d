@@ -12,6 +12,7 @@ import parser.types;
 import sema.expr;
 import sema.env;
 import reporter;
+debug import std.stdio;
 
 /// Report parsing error and perfomrs error recovery.
 private Expr parseError(ref TokenStream tokstr, string msg, SrcLoc loc)
@@ -587,6 +588,7 @@ RecField[] parseStructDeclList(ref TokenStream tokstr)
 /// Test parsePrimary.
 unittest
 {
+    writeln("\n==== testParsePrimary begins ====");
     void testPrimary(T)(string code, T ast)
     {
         static assert(
@@ -618,11 +620,14 @@ unittest
 
     // Test string.
     testPrimary("\"dummy string\";", new StringExpr("dummy string", SrcLoc()));
+    
+    writeln("==== testParsePrimary ends ====");
 }
 
 /// Test parseIntTypeSpec
 unittest
 {
+    writeln("\n==== testParseIntTypeSpec begins ====");
     void testParseIntTypeSpec(string pref)(string code, Type etype)
     {
         auto tokstr = TokenStream(code, "testIntTypeSpec.c");
@@ -645,11 +650,15 @@ unittest
         "int",
         intType
     );
+
+    writeln("==== testParseIntTypeSpec ends ====");
 }
 
 /// Test tryParseObjTypeSpec
 unittest
 {
+    writeln("\n==== testTryParseObjTypeSpec begins ====");
+
     void testTryParseObjTypeSpec(string code, Type etype)
     {
         auto tokstr = TokenStream(code, "testTryParseObjTypeSpec.c");
@@ -677,11 +686,15 @@ unittest
         "long long int",
         llongType
     );
+
+    writeln("==== testTryParseObjTypeSpec ends ====");
 }
 
 /// Test parsePostfix
 unittest
 {
+    writeln("\n==== testParsePostfix begins ====");
+
     auto tokstr = TokenStream("56L", "testParsePostfix.c");
     auto intExpr = cast(IntExpr)parsePostfix(tokstr);
     assert(intExpr);
@@ -720,4 +733,37 @@ unittest
         null,
         SrcLoc()
     ));
+
+    writeln("==== testParsePostfix ends ====");
+}
+
+/// Test parseUnary
+unittest
+{
+    writeln("\n==== testParseUnary begins ====");
+
+    auto declVarA = new VarDecl(
+        intType,
+        "a",
+        null,
+        SrcLoc(),
+    );
+    envPush();
+    envAddDecl("a", declVarA);
+
+    auto tokstr = TokenStream("a++", "testParseUnary.c");
+    auto expr = parseUnary(tokstr);
+    assert(expr);
+    assert(cast(UnaryExpr)expr);
+    
+    tokstr = TokenStream("b++", "testParseUnary.c");
+    expr = parseUnary(tokstr);
+    assert(!expr, "b is not declared");
+
+    tokstr = TokenStream("++a++", "testParseUnary.c");
+    expr = parseUnary(tokstr);
+    assert(!expr, "a++ is an rvalue");
+
+    envPop();
+    writeln("==== testParseUnary ends ====");
 }
