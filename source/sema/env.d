@@ -164,6 +164,7 @@ bool isLocal(const Decl decl)
 /// Test resolv
 unittest
 {
+    uniProlog();
     curenv = new Env(curenv);
     curenv.names["foo"] = new Decl(intType, "foo", SrcLoc());
     auto decl = envResolv("foo");
@@ -171,4 +172,5 @@ unittest
     assert(decl.isLocal);
     assert(decl.name == "foo");
     assert(decl.type == intType);
+    uniEpilog();
 }

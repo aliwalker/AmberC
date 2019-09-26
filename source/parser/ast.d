@@ -101,7 +101,7 @@ class StringExpr : Expr
     this(string val, SrcLoc loc)
     {
         // String literal is const char*
-        super(getPtrType(charType), loc);
+        super(getPtrType(charType, QUAL_CONST), loc);
         this.value = val;
     }
 }

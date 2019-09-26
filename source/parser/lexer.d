@@ -251,6 +251,9 @@ struct Token
 
 /// Tests for struct Token
 unittest {
+    import reporter;
+    uniProlog();
+
     SrcPos dummy;
     
     const eof = Token(dummy);
@@ -269,6 +272,8 @@ unittest {
         dummy
     );
     assert(b.toString() == "separator: )");
+
+    uniEpilog();
 }
 
 /// Stream for reading chars from source code. 
@@ -358,6 +363,9 @@ struct CharStream
 
 /// CharStream & Error.
 unittest {
+    import reporter;
+    uniProlog();
+
     string filename = "dummy";
     string code = "int someName = 1923;";
     CharStream chars = CharStream(code, filename);
@@ -379,6 +387,8 @@ unittest {
 
     auto error = new LexingError("bad lexing", "dummy.c", SrcPos(10, 10));
     assert(error.toString() == "dummy.c:10:10: error: bad lexing");
+
+    uniEpilog();
 }
 
 /// Bookkeeping information for lexing errors.
@@ -905,6 +915,8 @@ struct TokenStream
 
 /// Test lexStream.
 unittest {
+    import reporter;
+    uniProlog();
 
     void compareTokens(Token[] expectedToks, Token[] tokens)
     {
@@ -1091,11 +1103,14 @@ unittest {
         "invalid hex number"
     );
 
+    uniEpilog();
 }
 
 /// Test TokenStream.
 unittest
 {
+    import reporter;
+    uniProlog();
     auto tokstr = new TokenStream("int code = 4;", "dummy.c");
 
     assert(tokstr.errors is null);
@@ -1111,4 +1126,5 @@ unittest
     assert(tokstr.read().intVal == 4);
     assert(tokstr.matchSep(";"));
     assert(tokstr.read().kind == Token.EOF);
+    uniEpilog();
 }

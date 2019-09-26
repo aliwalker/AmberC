@@ -8,6 +8,7 @@ import std.stdint;
 import std.array;
 import std.format;
 import std.typecons;
+debug import reporter;
 
 /// Size of a pointer.
 const PTR_SIZE = 8;
@@ -523,7 +524,7 @@ class PtrType : Type
             );
         }
 
-        return base.toString() ~ "*";
+        return qualString() ~ base.toString() ~ "*";
     }
 }
 
@@ -674,10 +675,10 @@ FuncType getFuncType(Type retType, Type[] params, uint8_t qual = 0)
 /// Get or create a pointer type.
 PtrType getPtrType(Type base, uint8_t qual = 0)
 {
-    auto bastr = base.toString();
+    auto ptrstr = new PtrType(base, qual).toString();
 
     return getType!(PtrType)(
-        bastr, 
+        ptrstr, 
         { return new PtrType(base, qual); });
 }
 
@@ -754,6 +755,7 @@ private RecType makeUnionType(
 /// Test makeStrucType and makeUnionType.
 unittest
 {
+    uniProlog();
     RecType fooStrucType = makeStrucType(
         "fooStruc",
         [
@@ -784,11 +786,13 @@ unittest
     assert(barUnionType.members[0].offset == 0);
     assert(barUnionType.members[1].type == intType);
     assert(barUnionType.members[1].offset == 0);
+    uniEpilog();
 }
 
 /// Test Type constructor.
 unittest
 {
+    uniProlog();
     /// These should be equal.
     Type intPtr = new PtrType(intType);
     Type intPtr2 = new PtrType(intType);
@@ -818,11 +822,13 @@ unittest
     assert(intarr == intarr2);
     assert(intarr.toHash() == intarr2.toHash());
     static assert(is (typeof(intPtr) : Type));
+    uniEpilog();
 }
 
 /// Test toString
 unittest
 {
+    uniProlog();
     assert(intType.toString == "int");
 
     /// PtrType.
@@ -870,11 +876,13 @@ unittest
         ]
     );
     assert(barUnionTy.toString == "union barUnion");
+    uniEpilog();
 }
 
 /// Test getXXXType.
 unittest
 {
+    uniProlog();
     auto intPtrTy = getPtrType(intType);
     assert(intPtrTy !is null);
     assert(getPtrType(intType) == getPtrType(intType));
@@ -897,4 +905,5 @@ unittest
     assert(fooStrucMems[0].name == "foo");
     assert(fooStrucMems[1].type == longType);
     assert(fooStrucMems[1].name == "bar");
+    uniEpilog();
 }

@@ -588,7 +588,7 @@ RecField[] parseStructDeclList(ref TokenStream tokstr)
 /// Test parsePrimary.
 unittest
 {
-    writeln("\n==== testParsePrimary begins ====");
+    uniProlog();
     void testPrimary(T)(string code, T ast)
     {
         static assert(
@@ -621,13 +621,13 @@ unittest
     // Test string.
     testPrimary("\"dummy string\";", new StringExpr("dummy string", SrcLoc()));
     
-    writeln("==== testParsePrimary ends ====");
+    uniEpilog();
 }
 
 /// Test parseIntTypeSpec
 unittest
 {
-    writeln("\n==== testParseIntTypeSpec begins ====");
+    uniProlog();
     void testParseIntTypeSpec(string pref)(string code, Type etype)
     {
         auto tokstr = TokenStream(code, "testIntTypeSpec.c");
@@ -651,13 +651,13 @@ unittest
         intType
     );
 
-    writeln("==== testParseIntTypeSpec ends ====");
+    uniEpilog();
 }
 
 /// Test tryParseObjTypeSpec
 unittest
 {
-    writeln("\n==== testTryParseObjTypeSpec begins ====");
+    uniProlog();
 
     void testTryParseObjTypeSpec(string code, Type etype)
     {
@@ -687,13 +687,13 @@ unittest
         llongType
     );
 
-    writeln("==== testTryParseObjTypeSpec ends ====");
+    uniEpilog();
 }
 
 /// Test parsePostfix
 unittest
 {
-    writeln("\n==== testParsePostfix begins ====");
+    uniProlog();
 
     auto tokstr = TokenStream("56L", "testParsePostfix.c");
     auto intExpr = cast(IntExpr)parsePostfix(tokstr);
@@ -734,13 +734,13 @@ unittest
         SrcLoc()
     ));
 
-    writeln("==== testParsePostfix ends ====");
+    uniEpilog();
 }
 
 /// Test parseUnary
 unittest
 {
-    writeln("\n==== testParseUnary begins ====");
+    uniProlog();
 
     auto declVarA = new VarDecl(
         intType,
@@ -764,6 +764,14 @@ unittest
     expr = parseUnary(tokstr);
     assert(!expr, "a++ is an rvalue");
 
+    tokstr = TokenStream("&a", "testParseUnary.c");
+    expr = parseUnary(tokstr);
+    assert(expr);
+
+    tokstr = TokenStream("&\"string\"", "testParseUnary.c");
+    expr = parseUnary(tokstr);
+    assert(!expr);
+
     envPop();
-    writeln("==== testParseUnary ends ====");
+    uniEpilog();
 }
