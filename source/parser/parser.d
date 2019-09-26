@@ -752,35 +752,40 @@ unittest
     envPush();
     envAddDecl("a", declVarA);
 
-    auto tokstr = TokenStream("a++", "testParseUnary.c");
-    auto expr = parseUnary(tokstr);
-    assert(expr);
-    assert(cast(UnaryExpr)expr);
-    
-    tokstr = TokenStream("b++", "testParseUnary.c");
-    expr = parseUnary(tokstr);
-    assert(!expr, "b is not declared");
+    void testValid(T)(string code, string msg = "assert failed")
+    {
+        auto tokstr = TokenStream(code, "testParseUnary.c");
+        auto expr = parseUnary(tokstr);
+        assert(expr, msg);
+        assert(cast(T)expr, msg);
+    }
 
-    tokstr = TokenStream("++a++", "testParseUnary.c");
-    expr = parseUnary(tokstr);
-    assert(!expr, "a++ is an rvalue");
+    void testInvalid(string code, string msg = "assert falied")
+    {
+        auto tokstr = TokenStream(code, "testParseUnary.c");
+        auto expr = parseUnary(tokstr);
+        assert(!expr, msg);
+    }
+    /// Fall back to parsePostfix().
+    testValid!UnaryExpr("a++");
 
-    tokstr = TokenStream("&a", "testParseUnary.c");
-    expr = parseUnary(tokstr);
-    assert(expr);
+    /// Fall back to parsePostfix(). b is not declared.
+    testInvalid("b++");
 
-    tokstr = TokenStream("&\"string\"", "testParseUnary.c");
-    expr = parseUnary(tokstr);
-    assert(!expr);
+    /// Test invalid opnd for prefix ++.
+    testInvalid("++a++", "a++ is an rvalue");
 
-    tokstr = TokenStream("sizeof 4", "testParseUnary.c");
-    expr = parseUnary(tokstr);
-    assert(expr);
-    assert(cast(IntExpr)expr, "sizeof operator must be evaluated at parsing time.");
+    /// Test valid usage of &.
+    testValid!UnaryExpr("&a");
 
-    tokstr = TokenStream("*a", "testParseUnary.c");
-    expr = parseUnary(tokstr);
-    assert(!expr, "cannot deref a non-pointer type");
+    /// Test & on rvalue.
+    testInvalid("&\"string\"");
+
+    /// Test sizeof expr.
+    testValid!IntExpr("sizeof 4", "sizeof operator must be evaluated at parsing time.");
+
+    /// Test * on non-ptr and non-array expr.
+    testInvalid("*a", "cannot deref a non-ptr type");
 
     envPop();
     uniEpilog();
