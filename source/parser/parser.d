@@ -70,6 +70,11 @@ private bool isQualifier(Token tok)
     return any!((val) => compTokStr(tok, Token.KW, val))(tqualkw);
 }
 
+private bool isSpecifier(Token tok)
+{
+    return any!((val) => compTokStr(tok, Token.KW, val))(tkw);
+}
+
 /**
 
 Expressions.
@@ -170,7 +175,7 @@ Expr parsePostfix(ref TokenStream tokstr)
         switch (tokstr.peek().stringVal)
         {
             case "++", "--":    expr = parseIncrDecrSfx(tokstr, expr); break;
-            case ".", "->":     expr = parseRecAccess(tokstr, expr); break;
+            case ".", "->":     expr = parseMemberExpr(tokstr, expr); break;
             case "[", "(":      expr = parseCallAndSubs(tokstr, expr); break;
             default:
                 assert(false, "Not implemented");
@@ -202,10 +207,10 @@ Expr parseIncrDecrSfx(ref TokenStream tokstr, Expr lhs)
     return lhs;
 }
 
-/// Rec-access:
+/// member-expr:
 ///     (('.' | '->') identifier)+
 ///     ^
-Expr parseRecAccess(ref TokenStream tokstr, Expr struc)
+Expr parseMemberExpr(ref TokenStream tokstr, Expr struc)
 {
     auto tok = tokstr.read();
     assert(tok.kind == Token.SEP);
@@ -371,11 +376,52 @@ Type tryParseTypeName(ref TokenStream tokstr)
     return null;
 }
 
-/// Try to parse a qualifier.
-uint8_t tryParseTypeQual(ref TokenStream tokstr)
+/// Specifier-qualifier-list:
+///     type-specifier specifier-qualifier-list
+///     | type-qualifier specifier-qualifier-list
+/// 
+/// Note: we're not supporting something like
+/// signed const int a = 1;
+Type parseSpecQualList(ref TokenStream tokstr)
+{
+    uint8_t quals = 0;
+
+    // Consume any prefix qulifiers.
+    if (tokstr.peek().isQualifier())
+    {
+        quals = parseTypeQuals(tokstr);
+    }
+
+    // Type specifiers.
+    if (!tokstr.peek().isSpecifier())
+    {
+        report(
+            SVR_ERR,
+            "expect type specifier",
+            SrcLoc(tokstr.peek().pos, tokstr.filename)
+        );
+        return null;
+    }
+    auto type = parseTypeSpecs(tokstr);
+
+    // Consume any postfix qualifiers.
+    if (tokstr.peek().isQualifier())
+    {
+        quals |= parseTypeQuals(tokstr);
+    }
+
+    return (quals == 0) ? type : getQualType(type, quals);
+}
+
+/// Type-qualifiers:
+///     "const" type-qualifiers*
+///     | "register" type-qualifiers*
+uint8_t parseTypeQuals(ref TokenStream tokstr)
 {
     uint8_t quals = 0;
     auto tok = tokstr.read();
+    assert(isQualifier(tok));
+
     while (isQualifier(tok))
     {
         switch (tok.stringVal)
@@ -396,32 +442,25 @@ uint8_t tryParseTypeQual(ref TokenStream tokstr)
     return quals;
 }
 
-/// Try to parse an object type specifier from [tokstr].
-/// This function fails silently and returns [null]; 
-/// otherwise it returns the type parsed.
-Type tryParseObjTypeSpec(ref TokenStream tokstr)
+/// Type-specifiers:
+///     basic-type-specifiers
+///     | aggregType-specifiers
+///     | enum-specifiers   - TODO.
+///     | typedef-name      - TODO.
+Type parseTypeSpecs(ref TokenStream tokstr)
 {
-    // Try matching a type specifier.
-    string matched = "";
-    foreach (kw; tkw)
-    {
-        if (tokstr.matchKW(kw))
-        {
-            matched = kw;
-            break;
-        }
-    }
+    auto tokspec = tokstr.read();
+    assert(isSpecifier(tokspec));
 
-    switch (matched)
+    switch (tokspec.stringVal)
     {
-        case "":            break; // Does not match.
         case "_Bool":       return boolType;
         case "char":        return charType;
         case "short":
             tokstr.matchKW("int");
             return shortType;
 
-        case "int":         return parseIntTypeSpec!"signed"(tokstr);
+        case "int":         return intType;
         case "signed":      return parseIntTypeSpec!"signed"(tokstr);
         case "unsigned":    return parseIntTypeSpec!"unsigned"(tokstr);
         case "long":
@@ -444,10 +483,8 @@ Type tryParseObjTypeSpec(ref TokenStream tokstr)
         case "union":       return parseAggregTypeSpec(tokstr, true);
         
         default:
-            // TODO: typedef name and enum.
-            return null;
+            assert(false);
     }
-    return null;
 }
 
 /// intTypeSpec:
@@ -534,27 +571,29 @@ Type parseAggregTypeSpec(ref TokenStream tokstr, bool isUnion)
     auto isDef = false;
     auto tok = tokstr.read();
 
+    Token tokident = Token(Token.IDENT, "", tok.pos);
     RecType recType;
     RecField[] decls;
-    string ident;
 
     // identifier.
     if (tok.kind == Token.IDENT)
     {
-        ident = tok.stringVal;
+        tokident = tok;
+        tok = tokstr.read();
     }
 
     // struct-decl-list.
-    if (tokstr.matchSep("{"))
+    if (tok.kind == Token.SEP && tok.stringVal == "{")
     {
-        // Already exists.
-        if (getRecType(ident, ident, isUnion))
+        string tystr;
+        if (getRecType(tokident.stringVal, tystr, isUnion).members)
         {
             report(
                 SVR_ERR,
-                format!"redeclaration of '%s'"(ident),
-                SrcLoc(tok.pos, tokstr.filename),
+                format!"redeclaration of '%s'"(tokident.stringVal),
+                SrcLoc(tokident.pos, tokstr.filename),
             );
+            // TODO: synchronization.
             return null;
         }
 
@@ -563,9 +602,9 @@ Type parseAggregTypeSpec(ref TokenStream tokstr, bool isUnion)
     }
 
     string tystr;
-    recType = getRecType(ident, decls, tystr, isUnion);
+    recType = getRecType(tokident.stringVal, decls, tystr, isUnion);
 
-    if (isDef)
+    if (isDef && isLocalEnv())
     {
         // Rm this type info at the end of this env.
         envAddExitCb(()
@@ -655,15 +694,15 @@ unittest
     uniEpilog();
 }
 
-/// Test tryParseObjTypeSpec
+/// Test parseTypeSpec
 unittest
 {
     uniProlog();
 
     void testTryParseObjTypeSpec(string code, Type etype)
     {
-        auto tokstr = TokenStream(code, "testTryParseObjTypeSpec.c");
-        auto type = tryParseObjTypeSpec(tokstr);
+        auto tokstr = TokenStream(code, "testTryParseObjTypeSpecs.c");
+        auto type = parseTypeSpecs(tokstr);
 
         assert(type == etype);
     }
@@ -788,5 +827,29 @@ unittest
     testInvalid("*a", "cannot deref a non-ptr type");
 
     envPop();
+    uniEpilog();
+}
+
+/// Test parseSpecQualList
+unittest
+{
+    uniProlog();
+    void testValid(string code, string tystr)
+    {
+        auto tokstr = TokenStream(code, "testParseSpecQualList.c");
+        auto type = parseSpecQualList(tokstr);
+        assert(type);
+        assert(type.toString == tystr);
+    }
+
+    // Normal.
+    testValid("const int", "const int");
+
+    // Qualifiers can be at front or tail.
+    testValid("int const", "const int");
+
+    // Redundant qualifiers are ignored.
+    testValid("const int const", "const int");
+
     uniEpilog();
 }

@@ -682,6 +682,41 @@ PtrType getPtrType(Type base, uint8_t qual = 0)
         { return new PtrType(base, qual); });
 }
 
+/// Get qualified type of 'type'.
+Type getQualType(Type type, uint8_t qual)
+{
+    auto recType = cast(RecType)type;
+    if (recType)
+    {
+        return getRecType(recType.name, __preRecTypeStr, recType.isUnion, qual);
+    }
+
+    auto arrayType = cast(ArrayType)type;
+    if (arrayType)
+    {
+        return getArrayType(arrayType.elemTy, arrayType.size, qual);
+    }
+
+    auto funcType = cast(FuncType)type;
+    if (funcType)
+    {
+        return getFuncType(funcType.retType, funcType.params, qual);
+    }
+
+    auto ptrType = cast(PtrType)type;
+    if (ptrType)
+    {
+        return getPtrType(ptrType.base, qual);
+    }
+
+    // TODO: qualified types are not derived types.
+    auto tystr = new Type(type.kind, qual).toString();
+    return getType!(Type)(
+        tystr,
+        { return new Type(type.kind, qual); }
+    );
+}
+
 /// Helper for iterating record fields.
 /// [funct] accepts as params the type of the field, 
 /// and the name of the field.

@@ -148,6 +148,12 @@ Decl envGResolv(string name)
     return null;
 }
 
+/// Are we currently at some local scope?
+bool isLocalEnv()
+{
+    return curenv == glenv;
+}
+
 /// Return true if [decl] is a local declaration.
 bool isLocal(const Decl decl)
 {
