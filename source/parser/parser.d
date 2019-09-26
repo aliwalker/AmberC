@@ -59,9 +59,10 @@ private bool isPostfixUOp(Token tok)
 
 private bool isPrefixUOp(Token tok)
 {
-    auto uop = ["++", "--", "sizeof", "&", "*", "+", "-", "~", "!"];
+    auto uop = ["++", "--", "&", "*", "+", "-", "~", "!"];
+    auto isUop = any!((val) => compTokStr(tok, Token.SEP, val))(uop);
 
-    return any!((val) => compTokStr(tok, Token.SEP, val))(uop);
+    return (isUop || (tok.kind == Token.KW && tok.stringVal == "sizeof"));
 }
 
 private bool isQualifier(Token tok)
@@ -339,7 +340,7 @@ Expr parsePrimary(ref TokenStream tokstr)
             return parseParen(tokstr);
 
         default:
-            assert(false, "ParsePrimary called on non-primary tokens");
+            assert(false, format!"ParsePrimary called on non-primary token '%s'"(tok));
     }
 }
 
@@ -771,6 +772,11 @@ unittest
     tokstr = TokenStream("&\"string\"", "testParseUnary.c");
     expr = parseUnary(tokstr);
     assert(!expr);
+
+    tokstr = TokenStream("sizeof 4", "testParseUnary.c");
+    expr = parseUnary(tokstr);
+    assert(expr);
+    assert(cast(IntExpr)expr, "sizeof operator must be evaluated at parsing time.");
 
     envPop();
     uniEpilog();
