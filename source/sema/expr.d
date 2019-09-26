@@ -264,8 +264,8 @@ UnaryExpr semaDeref(Expr base, Expr idx = null)
     else
     {
         return semaErrExpr!UnaryExpr(
-            "subscripted value is not an array or pointer",
-            idx.loc,
+            format!"cannot dereference expression of type '%s'"(base.type),
+            base.loc,
         );
     }
 

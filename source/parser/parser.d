@@ -778,6 +778,10 @@ unittest
     assert(expr);
     assert(cast(IntExpr)expr, "sizeof operator must be evaluated at parsing time.");
 
+    tokstr = TokenStream("*a", "testParseUnary.c");
+    expr = parseUnary(tokstr);
+    assert(!expr, "cannot deref a non-pointer type");
+
     envPop();
     uniEpilog();
 }
