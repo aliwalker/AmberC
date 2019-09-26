@@ -167,7 +167,6 @@ bool isInteger(Type type)
         case Type.INT:       return true;
         case Type.LONG:      return true;
         case Type.LLONG:     return true;
-        case Type.FLOAT:     return true;
         case Type.UCHAR:     return true;
         case Type.USHORT:    return true;
         case Type.UINT:      return true;
@@ -176,6 +175,42 @@ bool isInteger(Type type)
         default:
             return false;
     }
+}
+
+/// p 6.2.5 10, 11
+/// Floating point.
+/// Note we're only supporting real FP types.
+bool isFP(Type type)
+{
+    return (
+        (type.kind == Type.FLOAT) ||
+        (type.kind == Type.DOUBLE));
+}
+
+/// p 6.2.5 17
+/// Integer or FP.
+bool isReal(Type type)
+{
+    return (
+        isInteger(type) ||
+        isFP(type)
+    );
+}
+
+/// p 6.2.5 18
+/// Integer and FP types are collectively 
+/// called arithmetic types.
+alias isArithmetic = isReal;
+
+/// p 6.2.5 21 Scalar type.
+/// Arithmetic types and pointer types are
+/// collectively called scalar types.
+bool isScalar(Type type)
+{
+    return (
+        isArithmetic(type) ||
+        (cast(PtrType)type)
+    );
 }
 
 /// Struct or Union type

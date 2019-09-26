@@ -132,7 +132,13 @@ Expr parseUnary(ref TokenStream tokstr)
                     tokstr.filename));
 
             case "*":
+                return semaDeref(rhs);
 
+            case "+", "-", "~", "!":
+                return semaUAOp(
+                    tokop.stringVal, 
+                    rhs, 
+                    SrcLoc(tokop.pos, tokstr.filename));
 
             default:
                 assert(false);

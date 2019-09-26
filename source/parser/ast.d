@@ -155,6 +155,8 @@ class UnaryExpr : Expr
         /// Represents Several kinds of derefence.
         /// E.g., *ptr, ptr[index], obj->mem.
         DEREF,
+        /// E.g. +variable
+        PLUS,
         /// E.g., -variable
         MINUS,
         /// E.g., variable++

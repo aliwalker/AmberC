@@ -44,6 +44,70 @@ private bool isLvalue(Expr expr)
     return false;
 }
 
+/// Semantic action on unary arithmetic operators.
+UnaryExpr semaUAOp(string op, Expr opnd, SrcLoc oploc)
+{
+    UnaryExpr.Kind kind;
+    Type resType;
+
+    // TODO: type promotion.
+    switch (op)
+    {
+        case "+", "-":
+        if (!isArithmetic(opnd.type))
+        {
+            goto INVALID_OPND;
+        }
+        else
+        {
+            kind = (op == "+") ? UnaryExpr.PLUS : UnaryExpr.MINUS;
+            resType = opnd.type;
+            goto DONE;
+        }
+
+        case "~":
+        if (!isInteger(opnd.type))
+        {
+            goto INVALID_OPND;
+        }
+        else
+        {
+            kind = UnaryExpr.BIT_NOT;
+            resType = opnd.type;
+            goto DONE;
+        }
+
+        case "!":
+        if (!isScalar(opnd.type))
+        {
+            goto INVALID_OPND;
+        }
+        else
+        {
+            kind = UnaryExpr.BOOL_NOT;
+            resType = boolType;
+            goto DONE;
+        }
+        
+        default:
+            assert(false);
+    }
+
+INVALID_OPND:
+    return semaErrExpr!UnaryExpr(
+        format!"invalid operand type '%s' for unary expression"(opnd.type),
+        oploc
+    );
+
+DONE:
+    return new UnaryExpr(
+        kind,
+        resType,
+        opnd,
+        oploc
+    );
+}
+
 /// Semantic action on increment and decrement uop.
 UnaryExpr semaIncrDecr(string prepost)(Expr opnd, string op, SrcLoc opLoc)
 {
