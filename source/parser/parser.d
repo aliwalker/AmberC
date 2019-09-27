@@ -379,9 +379,6 @@ Type tryParseTypeName(ref TokenStream tokstr)
 /// Specifier-qualifier-list:
 ///     type-specifier specifier-qualifier-list
 ///     | type-qualifier specifier-qualifier-list
-/// 
-/// Note: we're not supporting something like
-/// signed const int a = 1;
 Type parseSpecQualList(ref TokenStream tokstr)
 {
     uint8_t quals = 0;
@@ -488,12 +485,13 @@ Type parseTypeSpecs(ref TokenStream tokstr)
 }
 
 /// intTypeSpec:
-///     "signed" intType
+///     "signed" qualIntType
 ///              ^
-///     "unsigned" intType
+///     "unsigned" qualIntType
 ///                ^
-/// intType:
-///     "char" | "short" | "int" | "long" | "long long"
+/// qualIntType:
+///     qual qualIntType*
+///     | ("char" | "short" | "int" | "long" | "long long") qualIntType*
 Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
 {
     static assert(pref == "signed" || pref == "unsigned");
@@ -514,41 +512,67 @@ Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
         Type llongTy = ullongType;
     }
 
+    // Consume any qualifiers.
+    uint8_t quals = 0;
+    if (tokstr.peek().isQualifier())
+    {
+        quals |= parseTypeQuals(tokstr);
+    }
+
     auto tok = tokstr.read();
 
     // "signed" or "unsigned".
     if (tok.kind != Token.KW)
     {
         tokstr.unread();
-        return intTy;
+        return (quals == 0) ? intType : getQualType(intType, quals);
     }
 
+    Type resType;
     switch (tok.stringVal)
     {
         case "char":
-            return charTy;
+            resType = charTy;
+            goto POSTFIX_QUALS;
 
         case "short":
+            if (tokstr.peek().isQualifier())
+            {
+                quals |= parseTypeQuals(tokstr);
+            }
+
             // "signed short int". "int" is optional.
             tokstr.matchKW("int");
-            return shortTy;
+            resType = shortTy;
+            goto POSTFIX_QUALS;
 
         case "int":
-            return intTy;
+            resType = intTy;
+            goto POSTFIX_QUALS;
         
         case "long":
+            if (tokstr.peek().isQualifier())
+            {
+                quals |= parseTypeQuals(tokstr);
+            }
+
             // "signed long long (int)"
             if (tokstr.matchKW("long"))
             {
+                if (tokstr.peek().isQualifier())
+                {
+                    quals |= parseTypeQuals(tokstr);
+                }
                 tokstr.matchKW("int");
-                return llongTy;
+                resType = llongTy;
             }
             // "signed long (int)"
             else
             {
                 tokstr.matchKW("int");
-                return longTy;
+                resType = longTy;
             }
+            goto POSTFIX_QUALS;
 
         default:
             report(
@@ -559,6 +583,9 @@ Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
 
             return null;
     }
+    
+POSTFIX_QUALS:
+    return (quals == 0) ? resType : getQualType(resType, quals);
 }
 
 /// aggregTypeSpec:
@@ -839,6 +866,7 @@ unittest
         auto tokstr = TokenStream(code, "testParseSpecQualList.c");
         auto type = parseSpecQualList(tokstr);
         assert(type);
+        assert(tokstr.peek().kind == Token.EOF);
         assert(type.toString == tystr);
     }
 
@@ -850,6 +878,12 @@ unittest
 
     // Redundant qualifiers are ignored.
     testValid("const int const", "const int");
+
+    // Intermix qualifiers.
+    testValid("signed const int", "const int");
+
+    // Postfix qualifers.
+    testValid("signed int const", "const int");
 
     uniEpilog();
 }
