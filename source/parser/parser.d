@@ -401,17 +401,14 @@ Type parseAbsDecltr(ref TokenStream tokstr, Type type)
     assert(type);
     assert(tokstr.peekSep("*") || tokstr.peekSep("["));
 
-    while (tokstr.peekSep(")"))
+    while (!tokstr.peekSep(")"))
     {
         auto sloc = SrcLoc(tokstr.peek().pos, tokstr.filename);
 
         // Ptr
         if (tokstr.peekSep("*"))
         {
-            while (tokstr.matchSep("*"))
-            {
-                type = parsePtr(tokstr, type);
-            }
+            type = parsePtr(tokstr, type);
         }
         // Array
         else if (tokstr.peekSep("["))
@@ -505,7 +502,7 @@ Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
     Token[] skippedToks = [];
 
     // Either pointer or array.
-    if (!tokstr.peekSep("*") || !tokstr.peekSep("["))
+    if (!tokstr.peekSep("*") && !tokstr.peekSep("["))
     {
         return parseTypeError(
             tokstr,
@@ -1133,5 +1130,16 @@ unittest
     // Postfix qualifers.
     testValid("signed int const", "const int");
 
+    uniEpilog();
+}
+
+/// Test parseTypename
+unittest
+{
+    uniProlog();
+    auto tokstr = TokenStream("int(*)()", "testParseTypename.c");
+    auto type = parseTypeName(tokstr);
+    assert(type);
+    assert(cast(PtrType)type, "expect function ptr");
     uniEpilog();
 }

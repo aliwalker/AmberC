@@ -337,9 +337,9 @@ class FuncType : Type
     Type[] params;
 
     /// Constructor.
-    private this(Type retType, Type[] params, uint8_t qual = 0)
+    private this(Type retType, Type[] params)
     {
-        super(DERV, qual);
+        super(DERV, 0);
 
         this.retType = retType;
         this.params = params;
@@ -389,21 +389,20 @@ class FuncType : Type
         {
             if (i == (params.length - 1))
             {
-                ap.put(p.toString() ~ ")");
+                ap.put(p.toString());
             }
             else
             {
                 ap.put(p.toString() ~ ",");
             }
         }
-        return ap.data;
+        return ap.data ~ ")";
     }
 
     override string toString() const
     {
-        return format!"%s(*%s)%s"(
+        return format!"%s%s"(
             retType.toString(),
-            qualString(),
             paramString()
         );
     }
@@ -511,7 +510,11 @@ class PtrType : Type
         auto funcType = cast(FuncType)base;
         if (funcType)
         {
-            return funcType.toString();
+            return format!"%s(*%s)%s"(
+                funcType.retType,
+                funcType.qualString(),
+                funcType.paramString()
+            );
         }
 
         // Ptr to ArrayType.
@@ -663,9 +666,9 @@ ArrayType getArrayType(Type elemTy, size_t size, uint8_t qual = 0)
 }
 
 /// Get or create a function type.
-FuncType getFuncType(Type retType, Type[] params, uint8_t qual = 0)
+FuncType getFuncType(Type retType, Type[] params)
 {
-    auto fstr = new FuncType(retType, params, qual).toString();
+    auto fstr = new FuncType(retType, params).toString();
     
     return getType!(FuncType)(
         fstr, 
@@ -700,7 +703,7 @@ Type getQualType(Type type, uint8_t qual)
     auto funcType = cast(FuncType)type;
     if (funcType)
     {
-        return getFuncType(funcType.retType, funcType.params, qual);
+        return getFuncType(funcType.retType, funcType.params);
     }
 
     auto ptrType = cast(PtrType)type;
@@ -874,7 +877,7 @@ unittest
 
     /// FuncType.
     auto funcTy = new FuncType(voidType, [intPtrTy]);
-    assert(funcTy.toString == "void(*)(int*)");
+    assert(funcTy.toString == "void(int*)");
 
     /// Ptr to array.
     auto ptrToIntOfThree = new PtrType(
