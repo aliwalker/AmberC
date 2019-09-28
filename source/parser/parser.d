@@ -96,7 +96,7 @@ Expr parseExpr(ref TokenStream tokstr)
 /// 
 Expr parseAssignment(ref TokenStream tokstr)
 {
-    return null;
+    return parseUnary(tokstr);
 }
 
 /// Unary:
@@ -382,7 +382,15 @@ Type parseTypeName(ref TokenStream tokstr)
         return null;
     }
 
-    return parsePtrToArrayOrFuncType(tokstr, objtype);
+    Type type = parsePtr(tokstr, objtype);
+    if (tokstr.peekSep("(") || tokstr.peekSep("["))
+    {
+        return parsePtrToArrayOrFuncType(tokstr, type);
+    }
+    else
+    {
+        return type;
+    }
 }
 
 /// NOTE: we're currently parsing limited abstract declarators.
@@ -393,15 +401,19 @@ Type parseTypeName(ref TokenStream tokstr)
 /// Multiple-parentheses is not supported:
 ///
 ///     int (*([4]))                    - ✗
+///
 /// Abstract-declarator:
-///     "(" (ptr | ("[" IntExpr? "]"))+ ")"
+///     "(" (ptr | ("[" IntExpr? "]"))+ ")"?
 ///         ^
 Type parseAbsDecltr(ref TokenStream tokstr, Type type)
 {
     assert(type);
-    assert(tokstr.peekSep("*") || tokstr.peekSep("["));
+    assert(
+        tokstr.peekSep("*") || 
+        tokstr.peekSep("[") || 
+        tokstr.peek().kind == Token.EOF);
 
-    while (!tokstr.peekSep(")"))
+    while (!tokstr.peekSep(")") && !tokstr.peek().kind != Token.EOF)
     {
         auto sloc = SrcLoc(tokstr.peek().pos, tokstr.filename);
 
@@ -491,8 +503,31 @@ Type parseAbsDecltr(ref TokenStream tokstr, Type type)
 ///  "pointer to a const-qualified pointer that points to an int array of length 5".
 Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
 {
-    assert(tokstr.peekSep("("));
-    tokstr.read();
+    auto tok = tokstr.read();
+    assert(
+        (tok.kind == Token.SEP) &&
+        ((tok.stringVal == "(") || (tok.stringVal == "["))
+    );
+
+    /// Array Type
+    if (tok.stringVal == "[")
+    {
+        if (tokstr.matchSep("]"))
+        {
+            // TODO.
+        }
+
+        auto asz = cast(IntExpr)parseAssignment(tokstr);
+        if (!asz)
+        {
+            return parseTypeError(
+                tokstr,
+                "array size must be determinable in compile time",
+                SrcLoc(tok.pos, tokstr.filename)
+            );
+        }
+        return getArrayType(type, asz.value);
+    }
 
     // Stack that records how many '(' are waited to be
     // balanced.
@@ -1137,9 +1172,26 @@ unittest
 unittest
 {
     uniProlog();
-    auto tokstr = TokenStream("int(*)()", "testParseTypename.c");
-    auto type = parseTypeName(tokstr);
-    assert(type);
-    assert(cast(PtrType)type, "expect function ptr");
+
+    void testParseType(T)(string code, string repr)
+        if (is(T : Type))
+    {
+        auto tokstr = TokenStream(code, "testParseTypename.c");
+        auto type = cast(T)parseTypeName(tokstr);
+        assert(type);
+        assert(type.toString == repr);
+    }
+
+    alias testPtr = testParseType!(PtrType);
+    alias testArray = testParseType!(ArrayType);
+
+    // Basic type ptr.
+    testPtr("int*", "int*");
+
+    // Simple func ptr.
+    testPtr("int(*)()", "int(*)()");
+
+    // Test array.
+    testArray("int[5]", "int[5]");
     uniEpilog();
 }
