@@ -6,6 +6,7 @@ module parser.parser;
 import std.stdint;
 import std.format;
 import std.algorithm;
+import std.range;
 import parser.ast;
 import parser.lexer;
 import parser.types;
@@ -14,11 +15,9 @@ import sema.env;
 import reporter;
 debug import std.stdio;
 
-/// Report parsing error and perfomrs error recovery.
-private Expr parseError(ref TokenStream tokstr, string msg, SrcLoc loc)
+private T parseErrorImp(T)(ref TokenStream tokstr, string msg, SrcLoc loc)
 {
     // TODO: error recovery on TokenStream.
-
     report(
         SVR_ERR,
         msg,
@@ -27,6 +26,12 @@ private Expr parseError(ref TokenStream tokstr, string msg, SrcLoc loc)
 
     return null;
 }
+
+/// Report parsing error and perform error recovery.
+private alias parseError = parseErrorImp!(Expr);
+
+/// Report parsing type error and perform error recovery.
+private alias parseTypeError = parseErrorImp!(Type);
 
 /// Consume a token and expect it to be a separator.
 private void expectSep(ref TokenStream tokstr, string sep)
@@ -359,21 +364,273 @@ Expr parseParen(ref TokenStream tokstr)
         (tokstr.peek.kind == Token.SEP) &&
         (tokstr.peek.stringVal == "(")
     );
-
-    auto type = tryParseTypeName(tokstr);
-    if (type)
-    {
-        // TODO: compound-literal.
-    }
     
     return parseExpr(tokstr);
 }
 
-/// Try to parse a type name.
-Type tryParseTypeName(ref TokenStream tokstr)
+/// Type-name:
+///     specifier-qualifier-list ptr? abs-decltr*
+///     ^
+Type parseTypeName(ref TokenStream tokstr)
 {
-    // TODO
-    return null;
+    assert(tokstr.peek().isSpecifier() || tokstr.peek().isQualifier());
+    Type objtype = parseSpecQualList(tokstr);
+
+    // Abort when errors.
+    if (!objtype)
+    {
+        return null;
+    }
+
+    return parsePtrToArrayOrFuncType(tokstr, objtype);
+}
+
+/// NOTE: we're currently parsing limited abstract declarators.
+/// We can only parse something like:
+///
+///     int (*const *[])(unsigned)      - ✓
+///
+/// Multiple-parentheses is not supported:
+///
+///     int (*([4]))                    - ✗
+/// Abstract-declarator:
+///     "(" (ptr | ("[" IntExpr? "]"))+ ")"
+///         ^
+Type parseAbsDecltr(ref TokenStream tokstr, Type type)
+{
+    assert(type);
+    assert(tokstr.peekSep("*") || tokstr.peekSep("["));
+
+    while (tokstr.peekSep(")"))
+    {
+        auto sloc = SrcLoc(tokstr.peek().pos, tokstr.filename);
+
+        // Ptr
+        if (tokstr.peekSep("*"))
+        {
+            while (tokstr.matchSep("*"))
+            {
+                type = parsePtr(tokstr, type);
+            }
+        }
+        // Array
+        else if (tokstr.peekSep("["))
+        {
+            auto lbrackLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
+            
+            tokstr.read();  // '['
+            if (cast(FuncType)type)
+            {
+                return parseTypeError(
+                    tokstr,
+                    "array of function is not allowed",
+                    lbrackLoc
+                );
+            }
+
+            if (tokstr.matchSep("]"))
+            {
+                // TODO:
+            }
+            else
+            {
+                // FIXME:
+                // The size must be determined at compile time.
+                auto arraySize = cast(IntExpr)parseAssignment(tokstr);
+                if (!arraySize)
+                {
+                    return parseTypeError(
+                        tokstr,
+                        "variable-length array is not supported",
+                        lbrackLoc
+                    );
+                }
+
+                type = getArrayType(type, arraySize.value);
+                if (!tokstr.matchSep("]"))
+                {
+                    return parseTypeError(
+                        tokstr,
+                        "expect ']'",
+                        SrcLoc(tokstr.peek().pos, tokstr.filename)
+                    );
+                }
+
+                // Must end after "[expr]".
+                if (!tokstr.matchSep(")"))
+                {
+                    return parseTypeError(
+                        tokstr,
+                        "expect ')'",
+                        SrcLoc(tokstr.peek().pos, tokstr.filename)
+                    );
+                }
+                return type;
+            }
+        }
+        // Not supported.
+        else
+        {
+            return parseTypeError(
+                tokstr,
+                "unsupported type",
+                sloc
+            );
+        }
+    }
+    return type;
+}
+
+/// This is a bit tricky. We'll have to parse the inner-most
+/// type first, then wrap it up.
+///
+/// For example, to parse type:
+///     "int (*const(*))[5]"
+///      ^^^            ^^^
+/// We'll first have to parse the inner-most type, which is, in
+/// this case, "pointer that points to an int array of length 5",
+/// indicated by "^" in the above.
+/// Then we'll have to wrap this into(done by [parseAbsDecltr]):
+///  "pointer to a const-qualified pointer that points to an int array of length 5".
+Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
+{
+    assert(tokstr.peekSep("("));
+    tokstr.read();
+
+    // Stack that records how many '(' are waited to be
+    // balanced.
+    auto stack = ["("];
+
+    // Tokens that are skipped.
+    Token[] skippedToks = [];
+
+    // Either pointer or array.
+    if (!tokstr.peekSep("*") || !tokstr.peekSep("["))
+    {
+        return parseTypeError(
+            tokstr,
+            "expect '*'",
+            SrcLoc(tokstr.peek().pos, tokstr.filename)
+        );
+    }
+
+    // Skip until we see the final '(' or '['.
+    while (stack.length != 0)
+    {
+        if (tokstr.peek().kind == Token.EOF)
+        {
+            return parseTypeError(
+                tokstr,
+                "non-terminated type name",
+                SrcLoc(tokstr.peek().pos, tokstr.filename)
+            );
+        }
+
+        // Pop one.
+        if (tokstr.peekSep(")"))
+        {
+            if (stack.empty)
+            {
+                return parseTypeError(
+                    tokstr,
+                    "non-balanced ')'",
+                    SrcLoc(tokstr.peek().pos, tokstr.filename)
+                );
+            }
+
+            stack.popBack();
+        }
+        else if (tokstr.peekSep("("))
+        {
+            stack ~= "(";
+        }
+
+        // Add it to the skipped list.
+        skippedToks ~= tokstr.read();
+    }
+    // Add an EOF token.
+    skippedToks ~= Token(tokstr.peek().pos);
+
+    // These tokens are to parsed by [parseAbsDecltr].
+    auto skippedTokstr = TokenStream(skippedToks, tokstr.filename);
+    
+    // Function.
+    if (tokstr.matchSep("("))
+    {
+        Type[] params;
+
+        // Parse param-type-list.
+        while (!tokstr.matchSep(")"))
+        {
+            // TODO.
+        }
+
+        // Wrap the function ptr up.
+        return parseAbsDecltr(
+            skippedTokstr,
+            // NOTE: the pointer is not parsed yet.
+            getFuncType(type, params)
+        );
+    }
+
+    // Array.
+    else if (tokstr.matchSep("["))
+    {
+        auto exprLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
+        auto intExpr = cast(IntExpr)parseAssignment(tokstr);
+        if (!intExpr)
+        {
+            return parseTypeError(
+                tokstr,
+                "cannot determine the length of array",
+                exprLoc
+            );
+        }
+
+        exprLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
+        if (!tokstr.matchSep("]"))
+        {
+            return parseTypeError(
+                tokstr,
+                "expect ']'",
+                exprLoc
+            );
+        }
+
+        // Wrap the ptr to array up.
+        return parseAbsDecltr(
+            skippedTokstr,
+            // NOTE: the pointer is not parsed yet.
+            getArrayType(type, intExpr.value)
+        );
+    }
+
+    // Plain object or ptr type.
+    else
+    {
+        return parseAbsDecltr(
+            skippedTokstr,
+            // NOTE: the pointer is not parsed yet.
+            type
+        );
+    }
+}
+
+/// Ptr :
+///     * type-qualifier-list Ptr*
+///
+/// [type] is the current type represented by spec-qual list.
+Type parsePtr(ref TokenStream tokstr, Type type)
+{
+    assert(type);
+
+    while (tokstr.matchSep("*"))
+    {
+        uint8_t quals = parseTypeQuals(tokstr);
+        type = getPtrType(type, quals);
+    }
+
+    return type;
 }
 
 /// Specifier-qualifier-list:
@@ -381,13 +638,8 @@ Type tryParseTypeName(ref TokenStream tokstr)
 ///     | type-qualifier specifier-qualifier-list
 Type parseSpecQualList(ref TokenStream tokstr)
 {
-    uint8_t quals = 0;
-
     // Consume any prefix qulifiers.
-    if (tokstr.peek().isQualifier())
-    {
-        quals = parseTypeQuals(tokstr);
-    }
+    uint8_t quals = parseTypeQuals(tokstr);
 
     // Type specifiers.
     if (!tokstr.peek().isSpecifier())
@@ -402,10 +654,7 @@ Type parseSpecQualList(ref TokenStream tokstr)
     auto type = parseTypeSpecs(tokstr);
 
     // Consume any postfix qualifiers.
-    if (tokstr.peek().isQualifier())
-    {
-        quals |= parseTypeQuals(tokstr);
-    }
+    quals |= parseTypeQuals(tokstr);
 
     return (quals == 0) ? type : getQualType(type, quals);
 }
@@ -417,7 +666,6 @@ uint8_t parseTypeQuals(ref TokenStream tokstr)
 {
     uint8_t quals = 0;
     auto tok = tokstr.read();
-    assert(isQualifier(tok));
 
     while (isQualifier(tok))
     {

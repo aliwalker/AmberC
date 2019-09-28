@@ -855,6 +855,13 @@ struct TokenStream
         this.tokens = res.tokens;
     }
 
+    /// Constructed from tokens.
+    this(Token[] tokens, string filename)
+    {
+        this.tokens = tokens;
+        this.filename = filename;
+    }
+
     /// Peek without consuming a token.
     Token peek(size_t dis = 0)
     {
@@ -896,6 +903,14 @@ struct TokenStream
         
         idx++;
         return true;
+    }
+
+    /// Peek [sep] and return true if matched, without
+    /// consuming it.
+    bool peekSep(string sep, size_t dis = 0)
+    {
+        auto tok = peek(dis);
+        return (tok.kind == Token.SEP && tok.stringVal == sep);
     }
 
     /// Match and consume current tokens against the
