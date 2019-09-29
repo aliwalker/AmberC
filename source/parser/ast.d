@@ -118,8 +118,8 @@ class IdentExpr : Expr
     /// Constructor
     this(Decl identDecl, string idstr, SrcLoc loc)
     {
-        assert(idstr !is null);
-        assert(identDecl !is null);
+        assert(idstr );
+        assert(identDecl );
 
         super(identDecl.type, loc);
         this.identStr = idstr;
@@ -180,8 +180,8 @@ class UnaryExpr : Expr
     /// Constructor.
     this(Kind kind, Type exprTy, Expr opnd, SrcLoc loc)
     {
-        assert(exprTy !is null);
-        assert(opnd !is null);
+        assert(exprTy );
+        assert(opnd );
         
         super(exprTy, loc);
         this.opnd = opnd;
@@ -220,10 +220,10 @@ class MemberExpr : Expr
     /// Constructor.
     this(Type resType, Expr struc, string name, SrcLoc loc)
     {
-        assert(resType !is null);
-        assert(struc !is null);
-        assert(name !is null);
-        assert(cast(RecType)(struc.type) !is null);
+        assert(resType );
+        assert(struc );
+        assert(name);
+        assert(cast(RecType)(struc.type) );
 
         super(resType, loc);
         this.struc = struc;
@@ -245,8 +245,8 @@ class CallExpr : Expr
     /// [callee] - Func name.
     this(Type retType, Expr callee, Expr[] args, SrcLoc loc)
     {
-        assert(retType !is null);
-        assert(callee !is null);
+        assert(retType );
+        assert(callee );
 
         super(retType, loc);
         this.callee = callee;
@@ -271,9 +271,9 @@ class BinExpr : Expr
     /// Constructor.
     this(Type resType, string op, Expr lhs, Expr rhs, SrcLoc loc)
     {
-        assert(resType !is null);
-        assert(op !is null);
-        assert(lhs !is null && rhs !is null);
+        assert(resType );
+        assert(op );
+        assert(lhs  && rhs );
 
         super(resType, loc);
         this.op = op;
@@ -298,7 +298,7 @@ class AssignExpr : Expr
     this(Type resType, string op, Expr lhs, Expr rhs, SrcLoc loc)
     {
         assert(resType);
-        assert(lhs !is null && rhs !is null);
+        assert(lhs  && rhs );
         assert(lhs.type == resType);
         assert(
             op == "="  ||
@@ -315,7 +315,7 @@ class AssignExpr : Expr
     }
 }
 
-/// Represents a single initialization.
+/// Represents an non-compound initializer.
 /// For example, the following declaration
 ///
 /// int arr[] = {1, 2, 3};
@@ -335,11 +335,27 @@ class InitExpr : Expr
     /// Constructor.
     this(Expr value, size_t offset, SrcLoc loc)
     {
-        assert(value !is null);
+        assert(value );
 
         super(value.type, loc);
         this.value = value;
         this.offset = offset;
+    }
+}
+
+/// Represents a compound literal.
+class CompLitExpr : Expr
+{
+    /// A list of innitializer.
+    InitExpr[] inits;
+
+    /// Constructor.
+    this(Type litType, InitExpr[] inits, SrcLoc loc)
+    {
+        assert(litType);
+        super(litType, loc);
+
+        this.inits = inits;
     }
 }
 
@@ -525,8 +541,8 @@ class Decl : Node
     /// Constructor.
     this(Type type, string name, SrcLoc loc)
     {
-        assert(type !is null);
-        assert(name !is null);
+        assert(type );
+        assert(name );
 
         super(loc);
         this.type = type;

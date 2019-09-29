@@ -452,15 +452,19 @@ class ArrayType : Type
     override string toString() const
     {
         // Array of FuncType ptrs.
-        auto funcType = cast(FuncType)elemTy;
-        if (funcType)
+        auto ptrType = cast(PtrType)elemTy;
+        if (ptrType)
         {
-            return format!"%s(*%s [%s])%s"(
-                funcType.retType.toString(),
-                funcType.qualString(),
-                size,
-                funcType.paramString()
-            );
+            auto funcType = cast(FuncType)ptrType.base;
+            if (funcType)
+            {
+                return format!"%s(*%s[%s])%s"(
+                    funcType.retType.toString(),
+                    ptrType.qualString(),
+                    size,
+                    funcType.paramString()
+                );
+            }
         }
 
         return format!"%s[%s]"(elemTy.toString, size);
@@ -512,7 +516,7 @@ class PtrType : Type
         {
             return format!"%s(*%s)%s"(
                 funcType.retType,
-                funcType.qualString(),
+                qualString(),
                 funcType.paramString()
             );
         }
@@ -527,7 +531,7 @@ class PtrType : Type
             );
         }
 
-        return qualString() ~ base.toString() ~ "*";
+        return base.toString() ~ "*" ~ qualString();
     }
 }
 
@@ -580,7 +584,7 @@ private T getType(T)(string tystr, T delegate() ctor)
         assert(ty !is null);
 
         debug writefln(
-            "Get \"%s %s\" from base type \"%s\"", 
+            "Get \"%s: %s\"", 
             T.stringof, 
             ty,
             tystr
@@ -592,7 +596,7 @@ private T getType(T)(string tystr, T delegate() ctor)
     dvtypes[tystr] = ty;
 
     debug writefln(
-        "Added \"%s %s\" from base type \"%s\" ", 
+        "Added \"%s: %s\"", 
         T.stringof, 
         ty,
         tystr
@@ -640,8 +644,8 @@ RecType getRecType(
 {
     auto ty = getRecType(name, tystr, isUnion, qual);
 
-    // Already complete.
-    if (ty.members !is null)
+    // Already complete or cannot be completed.
+    if ((ty.members !is null) || (!fields))
     {
         return ty;
     }
@@ -892,10 +896,10 @@ unittest
     assert(ptrToFunc.toString == "void(*)(int*)");
 
     auto arrOfFunc = new ArrayType(
-        funcTy,
+        ptrToFunc,
         3
     );
-    assert(arrOfFunc.toString == "void(* [3])(int*)");
+    assert(arrOfFunc.toString == "void(*[3])(int*)");
 
     /// RecType.
     auto fooStrucTy = makeStrucType(

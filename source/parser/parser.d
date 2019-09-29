@@ -111,8 +111,27 @@ Expr parseUnary(ref TokenStream tokstr)
     if (tokstr.peek().isPrefixUOp())
     {
         auto tokop = tokstr.read();
-        // TODO:
-        // Handle "sizeof" '(' type-name ')' separately.
+
+        // sizeof(int)
+        if (tokop.stringVal == "sizeof" && 
+            tokstr.peekSep("(") &&
+            (tokstr.peek(1).isQualifier() || tokstr.peek(1).isSpecifier())
+        )
+        {
+            auto lparenLoc = SrcLoc(tokstr.read().pos, tokstr.filename);
+            auto type = parseTypeName(tokstr);
+            if (!type)
+            {
+                return null;
+            }
+
+            tokstr.expectSep(")");
+            return new IntExpr(
+                ulongType,
+                type.typeSize(),
+                lparenLoc
+            );
+        }
 
         auto rhs = parseUnary(tokstr);
 
@@ -133,7 +152,7 @@ Expr parseUnary(ref TokenStream tokstr)
             case "sizeof":
                 // the opnd of "sizeof" operator is not evaluated.
                 return new IntExpr(
-                    uintType, 
+                    ulongType, 
                     rhs.type.typeSize,
                     rhs.loc);
 
@@ -350,20 +369,38 @@ Expr parsePrimary(ref TokenStream tokstr)
             return parseParen(tokstr);
 
         default:
-            assert(false, format!"ParsePrimary called on non-primary token '%s'"(tok));
+            return parseError(
+                tokstr,
+                format!"unexpected token '%s'"(tok),
+                SrcLoc(tok.pos, tokstr.filename)
+            );
     }
 }
 
 /// paren:
-///     (expr)                             - grouping.
-///     | (type - name) { initalizer-list }  - compound literal.
-///     ^
+///     "(" expr ")"                             - grouping.
+///        ^
+///     | "(" typename ")" "{" initalizer-list "}"  - compound literal.
+///           ^
 Expr parseParen(ref TokenStream tokstr)
 {
     assert(
         (tokstr.peek.kind == Token.SEP) &&
         (tokstr.peek.stringVal == "(")
     );
+
+    // Compound literal.
+    if (tokstr.peek().isSpecifier() || tokstr.peek().isQualifier())
+    {
+        auto type = parseTypeName(tokstr);
+        if (!type)
+        {
+            // Abort on errors.
+            return null;
+        }
+        
+        
+    }
     
     return parseExpr(tokstr);
 }
@@ -620,14 +657,7 @@ Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
         }
 
         exprLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
-        if (!tokstr.matchSep("]"))
-        {
-            return parseTypeError(
-                tokstr,
-                "expect ']'",
-                exprLoc
-            );
-        }
+        expectSep(tokstr, "]");
 
         // Wrap the ptr to array up.
         return parseAbsDecltr(
@@ -1098,12 +1128,14 @@ unittest
     envPush();
     envAddDecl("a", declVarA);
 
-    void testValid(T)(string code, string msg = "assert failed")
+    T testValid(T)(string code, string msg = "assert failed")
     {
         auto tokstr = TokenStream(code, "testParseUnary.c");
         auto expr = parseUnary(tokstr);
         assert(expr, msg);
         assert(cast(T)expr, msg);
+
+        return cast(T)expr;
     }
 
     void testInvalid(string code, string msg = "assert falied")
@@ -1128,7 +1160,12 @@ unittest
     testInvalid("&\"string\"");
 
     /// Test sizeof expr.
-    testValid!IntExpr("sizeof 4", "sizeof operator must be evaluated at parsing time.");
+    auto intexpr = testValid!IntExpr("sizeof 4", "sizeof operator must be evaluated at parsing time.");
+    assert(intexpr.value == intType.typeSize());
+
+    /// Test sizeof expr.
+    intexpr = testValid!IntExpr("sizeof(int*)");
+    assert(intexpr.value == PTR_SIZE);
 
     /// Test * on non-ptr and non-array expr.
     testInvalid("*a", "cannot deref a non-ptr type");
@@ -1179,19 +1216,32 @@ unittest
         auto tokstr = TokenStream(code, "testParseTypename.c");
         auto type = cast(T)parseTypeName(tokstr);
         assert(type);
-        assert(type.toString == repr);
+        writeln(type);
+        assert(type.toString == repr, format!"expected type string '%s', but got '%s'"(repr, type));
     }
 
+    alias testBasic = testParseType!(Type);
     alias testPtr = testParseType!(PtrType);
     alias testArray = testParseType!(ArrayType);
+    alias testStruc = testParseType!(RecType);
+
+    testBasic("int", "int");
 
     // Basic type ptr.
     testPtr("int*", "int*");
+
+    testPtr("int *const", "int*const "/* The tailing whitespace exists. */);
 
     // Simple func ptr.
     testPtr("int(*)()", "int(*)()");
 
     // Test array.
     testArray("int[5]", "int[5]");
+
+    // Test struct.
+    testStruc("struct Foo", "struct Foo");
+
+    // Test funcPtr array.
+    testArray("int(*const [2])()", "int(*const [2])()");
     uniEpilog();
 }
