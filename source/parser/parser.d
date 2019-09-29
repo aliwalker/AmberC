@@ -786,8 +786,8 @@ Type parseTypeSpecs(ref TokenStream tokstr)
         case "float":       return floatType;
         case "double":      return doubleType;
         case "void":        return voidType;
-        case "struct":      return parseAggregTypeSpec(tokstr, false);
-        case "union":       return parseAggregTypeSpec(tokstr, true);
+        case "struct":      return parseRecTypeSpec(tokstr, false);
+        case "union":       return parseRecTypeSpec(tokstr, true);
         
         default:
             assert(false);
@@ -898,12 +898,12 @@ POSTFIX_QUALS:
     return (quals == 0) ? resType : getQualType(resType, quals);
 }
 
-/// aggregTypeSpec:
+/// RecTypeSpec:
 ///     ("struct" | "union") (name)? ('{' struct-decl-list '}')?
 ///                          ^
-/// struct-decl-list:
+/// Struct-decl-list:
 ///     (spec-qual-list declarator ';')*
-Type parseAggregTypeSpec(ref TokenStream tokstr, bool isUnion)
+Type parseRecTypeSpec(ref TokenStream tokstr, bool isUnion)
 {
     auto isDef = false;
     auto tok = tokstr.read();
@@ -1216,7 +1216,6 @@ unittest
         auto tokstr = TokenStream(code, "testParseTypename.c");
         auto type = cast(T)parseTypeName(tokstr);
         assert(type);
-        writeln(type);
         assert(type.toString == repr, format!"expected type string '%s', but got '%s'"(repr, type));
     }
 
