@@ -34,7 +34,7 @@ private alias parseError = parseErrorImp!(Expr);
 private alias parseTypeError = parseErrorImp!(Type);
 
 /// Consume a token and expect it to be a separator.
-private void expectSep(ref TokenStream tokstr, string sep)
+private bool expectSep(ref TokenStream tokstr, string sep)
 {
     if (!tokstr.matchSep(sep))
     {
@@ -43,7 +43,9 @@ private void expectSep(ref TokenStream tokstr, string sep)
             format!"expected '%s'"(sep),
             SrcLoc(tokstr.peek.pos, tokstr.filename)
         );
+        return false;
     }
+    return true;
 }
 
 /**
@@ -96,16 +98,55 @@ Expr parseExpr(ref TokenStream tokstr)
 /// 
 Expr parseAssignment(ref TokenStream tokstr)
 {
-    return parseUnary(tokstr);
+    return parseCast(tokstr);
 }
 
-/// Unary:
-///     postfix
-///     ("++" | "--") unary
-///     uop unary
-///     "sizeof" unary
-///     "sizeof" '(' type-name ')'
-///     ^
+/// cast
+///     : unary
+///     | "(" type-name ")" cast
+Expr parseCast(ref TokenStream tokstr)
+{
+    Expr castexpr;
+    SrcLoc lparenLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
+
+    if (tokstr.matchSep("("))
+    {
+        auto type = parseTypeName(tokstr);
+        if (!type)
+        {
+            // Abort on errors.
+            return null;
+        }
+
+        if (!tokstr.expectSep(")"))
+        {
+            return null;
+        }
+
+        auto opnd = parseCast(tokstr);
+        if (!opnd)
+        {
+            // Abort on errors.
+            return null;
+        }
+
+        return semaCast(type, opnd, lparenLoc);
+    }
+    else
+    {
+        castexpr = parseUnary(tokstr);
+    }
+
+    return castexpr;
+}
+
+/// unary
+///     : postfix
+///     | ("++" | "--") unary
+///     | uop unary
+///     | "sizeof" unary
+///     | "sizeof" '(' type-name ')'
+///       ^
 Expr parseUnary(ref TokenStream tokstr)
 {
     if (tokstr.peek().isPrefixUOp())
@@ -125,7 +166,11 @@ Expr parseUnary(ref TokenStream tokstr)
                 return null;
             }
 
-            tokstr.expectSep(")");
+            if (!tokstr.expectSep(")"))
+            {
+                return null;
+            }
+
             return new IntExpr(
                 ulongType,
                 type.typeSize(),
@@ -360,6 +405,11 @@ Expr parsePrimary(ref TokenStream tokstr)
         case Token.SEP:
             if (tok.stringVal != "(")
             {
+                debug return parseError(
+                    tokstr,
+                    "parsePrimary: expect '('",
+                    SrcLoc(tok.pos, tokstr.filename)
+                );
                 return parseError(
                     tokstr,
                     "expect '('",
@@ -937,6 +987,10 @@ Type parseRecTypeSpec(ref TokenStream tokstr, bool isUnion)
         isDef = true;
         decls = parseStructDeclList(tokstr);
     }
+    else
+    {
+        tokstr.unread();
+    }
 
     string tystr;
     recType = getRecType(tokident.stringVal, decls, tystr, isUnion);
@@ -1240,7 +1294,41 @@ unittest
     // Test struct.
     testStruc("struct Foo", "struct Foo");
 
+    // Test struct ptr.
+    testPtr("struct BBB*", "struct BBB*");
+
     // Test funcPtr array.
     testArray("int(*const [2])()", "int(*const [2])()");
     uniEpilog();
+}
+
+/// Test parseCast
+unittest
+{
+    void testValid(string code)
+    {
+        auto tokstr = TokenStream(code, "testParseCast.c");
+        auto expr = cast(UnaryExpr)parseCast(tokstr);
+        assert(expr);
+        assert(expr.kind == UnaryExpr.CAST);
+    }
+
+    void testInvalid(string code)
+    {
+        auto tokstr = TokenStream(code, "testParseCast.c");
+        auto expr = cast(UnaryExpr)parseCast(tokstr);
+        assert(!expr);
+    }
+
+    // auto fooStruc = getRecType("foo", [
+    //     RecField(intType, "bar")
+    // ]);
+    // envPush();
+    // envAddDecl("fooStruc", fooStruc);
+
+    testValid("(long)4");
+    testInvalid("(struct Foo)4");
+    testValid("(struct Foo*)4");
+
+    // envPop();
 }

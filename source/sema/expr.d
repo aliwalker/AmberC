@@ -44,6 +44,57 @@ private bool isLvalue(Expr expr)
     return false;
 }
 
+/// Semantic action on cast expressions.
+UnaryExpr semaCast(Type type, Expr opnd, SrcLoc parenLoc)
+{
+    assert(type && opnd);
+
+    Type errType;
+    SrcLoc errLoc;
+
+    bool nonScalar(SrcLoc loc, Type type)
+    {
+        errLoc = loc;
+        errType = type;
+        
+        return !isScalar(type);
+    }
+
+    // Decay the array if needed.
+    if (cast(ArrayType)opnd.type)
+    {
+        auto arrayType = cast(ArrayType)opnd.type;
+
+        opnd = new UnaryExpr(
+            UnaryExpr.DECAY,
+            getPtrType(arrayType.elemTy),
+            opnd,
+            opnd.loc);
+    }
+
+    // Error on non scalar type.
+    if (nonScalar(parenLoc, type) || nonScalar(opnd.loc, opnd.type))
+    {
+        goto NON_SCALAR_ERR;
+    }
+    // Cast unary expression.
+    else
+    {
+        return new UnaryExpr(
+            UnaryExpr.CAST,
+            type,
+            opnd,
+            parenLoc
+        );
+    }
+
+NON_SCALAR_ERR:
+    return semaErrExpr!UnaryExpr(
+        format!"used type '%s' where arithmetic or pointer type is required"(errType),
+        errLoc
+    );
+}
+
 /// Semantic action on unary arithmetic operators.
 UnaryExpr semaUAOp(string op, Expr opnd, SrcLoc oploc)
 {
