@@ -157,24 +157,106 @@ class Type
     }
 }
 
-/// Helper for identifying integer type.
-bool isInteger(Type type)
+/// Signed integer?
+bool isSigned(Type type)
 {
+    return (
+        (type.kind == Type.SCHAR) ||
+        (type.kind == Type.SHORT) ||
+        (type.kind == Type.INT)   ||
+        (type.kind == Type.LONG)  ||
+        (type.kind == Type.LLONG));
+}
+
+/// Unsigned integer?
+bool isUnsigned(Type type)
+{
+    return (
+        (type.kind == Type.UCHAR) ||
+        (type.kind == Type.USHORT) ||
+        (type.kind == Type.UINT)   ||
+        (type.kind == Type.ULONG)  ||
+        (type.kind == Type.ULLONG));
+}
+
+/// Get unsigned version.
+Type getUnsigned(Type type)
+{
+    assert(isSigned(type));
+
     switch (type.kind)
     {
-        case Type.CHAR:      return true;
-        case Type.SCHAR:     return true;
-        case Type.SHORT:     return true;
-        case Type.INT:       return true;
-        case Type.LONG:      return true;
-        case Type.LLONG:     return true;
-        case Type.UCHAR:     return true;
-        case Type.USHORT:    return true;
-        case Type.UINT:      return true;
-        case Type.ULONG:     return true;
-        case Type.ULLONG:    return true;
+        case Type.SCHAR:    return ucharType;
+        case Type.SHORT:    return ushortType;
+        case Type.INT:      return uintType;
+        case Type.LONG:     return ulongType;
+        case Type.LLONG:    return ullongType;
         default:
-            return false;
+            assert(false);
+    }
+}
+
+/// Get signed version.
+Type getSigned(Type type)
+{
+    assert(isUnsigned(type));
+
+    switch (type.kind)
+    {
+        case Type.UCHAR:     return scharType;
+        case Type.USHORT:    return shortType;
+        case Type.UINT:      return intType;
+        case Type.ULONG:     return longType;
+        case Type.ULLONG:    return llongType;
+        default:
+            assert(false);
+    }
+}
+
+/// Integer?
+bool isInteger(Type type)
+{
+    return (isSigned(type) || isUnsigned(type));
+}
+
+/// Integer rank.
+uint8_t intRank(Type type)
+{
+    assert(isInteger(type));
+
+    switch (type.kind)
+    {
+        case Type.BOOL_:                        return 0;
+        case Type.CHAR, Type.SCHAR, Type.UCHAR: return 1;
+        case Type.SHORT, Type.USHORT:           return 2;
+        case Type.INT, Type.UINT:               return 3;
+        case Type.LONG, Type.ULONG:             return 4;
+        case Type.LLONG, Type.ULLONG:           return 5;
+        default:
+            assert(false);
+    }
+}
+
+/// Max value of an integer type.
+long intMaxVal(Type type)
+{
+    assert(isInteger(type));
+
+    switch (type.kind)
+    {
+        case Type.BOOL_:                return 1;
+        case Type.CHAR, Type.UCHAR:     return uint8_t.max;
+        case Type.SCHAR:                return int8_t.max;
+        case Type.SHORT:                return short.max;
+        case Type.USHORT:               return ushort.max;
+        case Type.INT:                  return int.max;
+        case Type.UINT:                 return uint.max;
+        case Type.LONG:                 return long.max;
+        case Type.ULONG:                return ulong.max;
+        case Type.LLONG:                return long.max;
+        case Type.ULLONG:               return ulong.max;
+        default:
+            assert(false);
     }
 }
 

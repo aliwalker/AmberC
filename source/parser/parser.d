@@ -101,6 +101,36 @@ Expr parseAssignment(ref TokenStream tokstr)
     return parseCast(tokstr);
 }
 
+/// multiplicative
+///     : cast
+///     | multiplicative ("*" | "/" | "%") multiplicative
+Expr parseMultiplicative(ref TokenStream tokstr)
+{
+    auto expr = parseCast(tokstr);
+
+    while (
+        expr &&
+        (tokstr.peekSep("*") ||
+        tokstr.peekSep("/") ||
+        tokstr.peekSep("%"))
+    )
+    {
+        auto optok = tokstr.read();
+        auto rhs = parseCast(tokstr);
+        if (!rhs)
+        {
+            // Abort on errors.
+            return null;
+        }
+        expr = semaMult(
+            optok.stringVal, 
+            expr, 
+            rhs, 
+            SrcLoc(optok.pos, tokstr.filename));
+    }
+    return expr;
+}
+
 /// cast
 ///     : unary
 ///     | "(" type-name ")" cast

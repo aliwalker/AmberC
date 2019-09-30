@@ -44,6 +44,191 @@ private bool isLvalue(Expr expr)
     return false;
 }
 
+/// Whether expr is a constant literal.
+private bool litExpr(Expr expr)
+{
+    if (
+        cast(IntExpr)expr   || 
+        cast(FloatExpr)expr ||
+        cast(StringExpr)expr)
+    {
+        return true;
+    }
+    return false;
+}
+
+/// p 6.3.1.8
+/// Common real type for an arithmetic results.
+private Type arithCommType(Type a, Type b)
+{
+    assert(isArithmetic(a) && isArithmetic(b));
+
+    if (a == doubleType || b == doubleType)
+    {
+        return doubleType;
+    }
+
+    if (a == floatType || b == floatType)
+    {
+        return floatType;
+    }
+
+    // No need to change.
+    if (a == b)
+    {
+        return a;
+    }
+
+    Type wider = (intRank(a) > intRank(b) ? a : b);
+    Type narrower = (intRank(a) > intRank(b) ? b : a);
+
+    // Pick the one with greater length.
+    if ((isSigned(a) && isSigned(b))     ||
+        (isUnsigned(a) && isUnsigned(b)) ||
+        (isUnsigned(wider)))
+    {
+        return wider;
+    }
+
+    // wider is signed and narrower is unsigned.
+    if (intMaxVal(wider) > cast(ulong)intMaxVal(narrower))
+    {
+        return wider;
+    }
+
+    return getUnsigned(narrower);
+}
+
+/// Convert expr [opnd] into an expr with [commType] type.
+private Expr arithConv(Expr opnd, Type commType)
+{
+    assert(isArithmetic(opnd.type) && isArithmetic(commType));
+
+    if (opnd.type == commType)
+    {
+        // No need to convert.
+        return opnd;
+    }
+
+    // If [opnd] is a literal, we'll convert them directly.
+    auto intexpr = cast(IntExpr)opnd;
+    auto fexpr = cast(FloatExpr)opnd;
+
+    if (isInteger(commType))
+    {
+        assert(fexpr, "No FP values are demoted into integers");
+
+        return new IntExpr(
+            commType,
+            intexpr.value,
+            intexpr.loc
+        );
+    }
+
+    if ((intexpr || fexpr) && isFP(commType))
+    {
+        return new FloatExpr(
+            commType,
+            (intexpr ? intexpr.value : fexpr.value ),
+            (intexpr ? intexpr.loc : fexpr.loc )
+        );
+    }
+
+    // Implicit cast is necessary.
+    return new UnaryExpr(
+        UnaryExpr.CAST,
+        commType,
+        opnd,
+        opnd.loc
+    );
+}
+
+/// Evaluate binary expressions.
+private Expr semaEvalLit(string op, Expr lhs, Expr rhs, Type commType)
+{
+    assert(litExpr(lhs) && litExpr(rhs));
+
+    auto lintexpr = cast(IntExpr)lhs;
+    auto lfexpr = cast(FloatExpr)lhs;
+    auto rintexpr = cast(IntExpr)rhs;
+    auto rfexpr = cast(FloatExpr)rhs;
+
+    string genLitExpr(string op)
+    {
+        return format!"
+        return fp
+            ? new FloatExpr(commType, lfexpr.value %s rfexpr.value, lhs.loc)
+            : new IntExpr(commType, lintexpr.value %s rintexpr.value, lhs.loc);"(op, op);
+    }
+
+    auto fp = isFP(commType);
+    switch (op)
+    {
+        case "*":   mixin(genLitExpr("*"));
+        case "/":   mixin(genLitExpr("/"));
+        case "%":   mixin(genLitExpr("%"));
+        case "+":   mixin(genLitExpr("+"));
+        case "-":   mixin(genLitExpr("-"));
+        default:
+            assert(false);
+    }
+}
+
+/// Semantic action on multiplicative expressions.
+Expr semaMult(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
+{
+    assert(op == "*" || op == "/" || op == "%");
+    assert(lhs && rhs);
+
+    /// Ensure both operands are of arithmetic type.
+    bool ensureOpnd(Expr opnd, bool function(Type) pred)
+    {
+        if (!pred(opnd.type))
+        {
+            report(
+                SVR_ERR,
+                "invalid operands to binary expression",
+                opnd.loc
+            );
+            return false;
+        }
+        return true;
+    }
+
+    if (
+        !ensureOpnd(lhs, &isArithmetic) || 
+        !ensureOpnd(rhs, &isArithmetic))
+    {
+        return null;
+    }
+
+    if (op == "%" && (
+        !ensureOpnd(lhs, &isInteger) || 
+        !ensureOpnd(rhs, &isInteger)))
+    {
+        return null;
+    }
+
+    // Obtain common type.
+    auto commType = arithCommType(lhs.type, rhs.type);
+    
+    lhs = arithConv(lhs, commType);
+    rhs = arithConv(rhs, commType);
+    if (litExpr(lhs) && litExpr(rhs))
+    {
+        // Long as we can compute them.
+        return semaEvalLit(op, lhs, rhs, commType);
+    }
+
+    return new BinExpr(
+        commType,
+        op,
+        lhs,
+        rhs,
+        opLoc
+    );
+}
+
 /// Semantic action on cast expressions.
 UnaryExpr semaCast(Type type, Expr opnd, SrcLoc parenLoc)
 {
