@@ -227,11 +227,11 @@ Expr parseUnary(ref TokenStream tokstr)
     }
 }
 
-/// Postfix:
-///     primary operators*
+/// postfix
+///     : primary operators*
 ///     ^
-/// Operators:
-///     increment-decrement-suffix operators*
+/// operators
+///     : increment-decrement-suffix operators*
 ///     | rec-access operators*
 ///     | call-and-subs operators*
 Expr parsePostfix(ref TokenStream tokstr)
@@ -253,9 +253,9 @@ Expr parsePostfix(ref TokenStream tokstr)
     return expr;
 }
 
-/// Increment-decrement-suffix:
-///     ("++" | "--")+
-///     ^
+/// increment-decrement-suffix
+///     : ("++" | "--")+
+///       ^
 Expr parseIncrDecrSfx(ref TokenStream tokstr, Expr lhs)
 {
     auto tok = tokstr.read();
@@ -276,9 +276,9 @@ Expr parseIncrDecrSfx(ref TokenStream tokstr, Expr lhs)
     return lhs;
 }
 
-/// member-expr:
-///     (('.' | '->') identifier)+
-///     ^
+/// member-expr
+///     : (('.' | '->') identifier)+
+///       ^
 Expr parseMemberExpr(ref TokenStream tokstr, Expr struc)
 {
     auto tok = tokstr.read();
@@ -328,11 +328,11 @@ Expr parseMemberExpr(ref TokenStream tokstr, Expr struc)
     return struc;
 }
 
-/// Call-and-subs:
-///     ('[' expression ']' | '(' arg-list ')')+
-///     ^
-/// arg-list:
-///     assignment, arg-list
+/// call-and-subs
+///     : ('[' expression ']' | '(' arg-list ')')+
+///       ^
+/// arg-list
+///     : assignment, arg-list
 Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
 {
     auto tok = tokstr.read();
@@ -386,8 +386,8 @@ Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
     return lhs;
 }
 
-/// primary-expression:
-///     identifier
+/// primary-expression
+///     : identifier
 ///     | constant
 ///     | string-literal
 ///     | paren
@@ -427,11 +427,11 @@ Expr parsePrimary(ref TokenStream tokstr)
     }
 }
 
-/// paren:
-///     "(" expr ")"                             - grouping.
+/// paren
+///     : "(" expr ")"                              - grouping.
 ///        ^
 ///     | "(" typename ")" "{" initalizer-list "}"  - compound literal.
-///           ^
+///        ^
 Expr parseParen(ref TokenStream tokstr)
 {
     assert(
@@ -455,9 +455,9 @@ Expr parseParen(ref TokenStream tokstr)
     return parseExpr(tokstr);
 }
 
-/// Type-name:
-///     specifier-qualifier-list ptr? abs-decltr*
-///     ^
+/// type-name
+///     : specifier-qualifier-list ptr? abs-decltr*
+///       ^
 Type parseTypeName(ref TokenStream tokstr)
 {
     assert(tokstr.peek().isSpecifier() || tokstr.peek().isQualifier());
@@ -489,9 +489,9 @@ Type parseTypeName(ref TokenStream tokstr)
 ///
 ///     int (*([4]))                    - ✗
 ///
-/// Abstract-declarator:
-///     "(" (ptr | ("[" IntExpr? "]"))+ ")"?
-///         ^
+/// abstract-declarator
+///     : "(" (ptr | ("[" IntExpr? "]"))+ ")"?
+///           ^
 Type parseAbsDecltr(ref TokenStream tokstr, Type type)
 {
     assert(type);
@@ -728,8 +728,8 @@ Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
     }
 }
 
-/// Ptr :
-///     * type-qualifier-list Ptr*
+/// ptr
+///     : "*" type-qualifier-list ptr*
 ///
 /// [type] is the current type represented by spec-qual list.
 Type parsePtr(ref TokenStream tokstr, Type type)
@@ -745,8 +745,8 @@ Type parsePtr(ref TokenStream tokstr, Type type)
     return type;
 }
 
-/// Specifier-qualifier-list:
-///     type-specifier specifier-qualifier-list
+/// specifier-qualifier-list
+///     : type-specifier specifier-qualifier-list
 ///     | type-qualifier specifier-qualifier-list
 Type parseSpecQualList(ref TokenStream tokstr)
 {
@@ -771,8 +771,8 @@ Type parseSpecQualList(ref TokenStream tokstr)
     return (quals == 0) ? type : getQualType(type, quals);
 }
 
-/// Type-qualifiers:
-///     "const" type-qualifiers*
+/// type-qualifiers
+///     : "const" type-qualifiers*
 ///     | "register" type-qualifiers*
 uint8_t parseTypeQuals(ref TokenStream tokstr)
 {
@@ -799,8 +799,8 @@ uint8_t parseTypeQuals(ref TokenStream tokstr)
     return quals;
 }
 
-/// Type-specifiers:
-///     basic-type-specifiers
+/// type-specifiers
+///     : basic-type-specifiers
 ///     | aggregType-specifiers
 ///     | enum-specifiers   - TODO.
 ///     | typedef-name      - TODO.
@@ -844,13 +844,13 @@ Type parseTypeSpecs(ref TokenStream tokstr)
     }
 }
 
-/// intTypeSpec:
-///     "signed" qualIntType
-///              ^
-///     "unsigned" qualIntType
+/// intTypeSpec
+///     : "signed" qualIntType
 ///                ^
-/// qualIntType:
-///     qual qualIntType*
+///     | "unsigned" qualIntType
+///                  ^
+/// qualIntType
+///     : qual qualIntType*
 ///     | ("char" | "short" | "int" | "long" | "long long") qualIntType*
 Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
 {
@@ -948,11 +948,11 @@ POSTFIX_QUALS:
     return (quals == 0) ? resType : getQualType(resType, quals);
 }
 
-/// RecTypeSpec:
-///     ("struct" | "union") (name)? ('{' struct-decl-list '}')?
+/// recTypeSpec
+///     : ("struct" | "union") (name)? ('{' struct-decl-list '}')?
 ///                          ^
-/// Struct-decl-list:
-///     (spec-qual-list declarator ';')*
+/// struct-decl-list
+///     : (spec-qual-list declarator ';')*
 Type parseRecTypeSpec(ref TokenStream tokstr, bool isUnion)
 {
     auto isDef = false;
@@ -1006,8 +1006,8 @@ Type parseRecTypeSpec(ref TokenStream tokstr, bool isUnion)
     return recType;
 }
 
-/// struct-decl-list:
-///     (spec-qual-list declarator)* ;
+/// struct-decl-list
+///     : (spec-qual-list declarator)* ;
 ///
 RecField[] parseStructDeclList(ref TokenStream tokstr)
 {
