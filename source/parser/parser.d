@@ -28,7 +28,7 @@ private T parseErrorImp(T)(ref TokenStream tokstr, string msg, SrcLoc loc)
 }
 
 /// Report parsing error and perform error recovery.
-private alias parseError = parseErrorImp!(Expr);
+private alias parseExprError = parseErrorImp!(Expr);
 
 /// Report parsing type error and perform error recovery.
 private alias parseTypeError = parseErrorImp!(Type);
@@ -38,7 +38,7 @@ private bool expectSep(ref TokenStream tokstr, string sep)
 {
     if (!tokstr.matchSep(sep))
     {
-        parseError(
+        parseExprError(
             tokstr,
             format!"expected '%s'"(sep),
             SrcLoc(tokstr.peek.pos, tokstr.filename)
@@ -296,7 +296,7 @@ Expr parseMemberExpr(ref TokenStream tokstr, Expr struc)
         auto tokIdent = tokstr.read();
         if (tokIdent.kind != Token.IDENT)
         {
-            return parseError(
+            return parseExprError(
                 tokstr,
                 "expect identifier",
                 SrcLoc(tokIdent.pos, tokstr.filename)
@@ -405,12 +405,12 @@ Expr parsePrimary(ref TokenStream tokstr)
         case Token.SEP:
             if (tok.stringVal != "(")
             {
-                debug return parseError(
+                debug return parseExprError(
                     tokstr,
                     "parsePrimary: expect '('",
                     SrcLoc(tok.pos, tokstr.filename)
                 );
-                return parseError(
+                return parseExprError(
                     tokstr,
                     "expect '('",
                     SrcLoc(tok.pos, tokstr.filename)
@@ -419,7 +419,7 @@ Expr parsePrimary(ref TokenStream tokstr)
             return parseParen(tokstr);
 
         default:
-            return parseError(
+            return parseExprError(
                 tokstr,
                 format!"unexpected token '%s'"(tok),
                 SrcLoc(tok.pos, tokstr.filename)
@@ -1320,15 +1320,8 @@ unittest
         assert(!expr);
     }
 
-    // auto fooStruc = getRecType("foo", [
-    //     RecField(intType, "bar")
-    // ]);
-    // envPush();
-    // envAddDecl("fooStruc", fooStruc);
-
     testValid("(long)4");
     testInvalid("(struct Foo)4");
     testValid("(struct Foo*)4");
 
-    // envPop();
 }
