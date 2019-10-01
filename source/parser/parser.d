@@ -88,17 +88,18 @@ Expressions.
 
 */
 
-/// expression:
+/// expression
 ///
 Expr parseExpr(ref TokenStream tokstr)
 {
     return parseAssignment(tokstr);
 }
 
-/// 
+/// assignment
+///
 Expr parseAssignment(ref TokenStream tokstr)
 {
-    return parseCast(tokstr);
+    return parseMultiplicative(tokstr);
 }
 
 /// multiplicative
@@ -1335,6 +1336,7 @@ unittest
 /// Test parseCast
 unittest
 {
+    uniProlog();
     void testValid(string code)
     {
         auto tokstr = TokenStream(code, "testParseCast.c");
@@ -1353,5 +1355,70 @@ unittest
     testValid("(long)4");
     testInvalid("(struct Foo)4");
     testValid("(struct Foo*)4");
+    uniEpilog();
+}
 
+/// Test parseMult
+unittest
+{
+    uniProlog();
+
+    void testLit(T, N = long)(string code, Type resType, N val = 0)
+        if (is (T == IntExpr) || is (T == FloatExpr))
+    {
+        auto tokstr = TokenStream(code, "testParseMult.c");
+        auto expr = cast(T)parseMultiplicative(tokstr);
+        assert(expr);
+        assert(expr.type == resType, "expect result type " ~ resType.toString());
+        assert(expr.value == val, format!"expect value %s, but got %s"(val, expr.value));
+    }
+
+    void testNonLit(string code, Type resType)
+    {
+        auto tokstr = TokenStream(code, "testParseMult.c");
+        auto expr = cast(BinExpr)parseMultiplicative(tokstr);
+        assert(expr);
+        assert(expr.type == resType, "expect result type " ~ resType.toString());
+    }
+
+    // Int literals.
+    testLit!(IntExpr)("4 * 5", intType, 20);
+
+    // Successive int literals.
+    testLit!(IntExpr)("4 * 5 * 2", intType, 40);
+
+    // Test left-assoc
+    testLit!(IntExpr)("4 * 5 % 5", intType, 0);
+
+    // Promote to float.
+    testLit!(FloatExpr, double)("4 * 5.0", floatType, 20.0);
+
+    // Promote to double.
+    testLit!(FloatExpr, double)("4 * 5.0L", doubleType, 20.0);
+
+    envPush();
+    envAddDecl("a", new VarDecl(
+        longType,
+        "a",
+        null,
+        SrcLoc()
+    ));
+    envAddDecl("b", new VarDecl(
+        ushortType,
+        "b",
+        null,
+        SrcLoc()
+    ));
+
+    // Promotes literal.
+    testNonLit("a * 5", longType);
+
+    // Promotes var.
+    testNonLit("b * 5", intType);
+
+    // Promotes both.
+    testNonLit("a * 5UL", ulongType);
+
+    envPop();
+    uniEpilog();
 }

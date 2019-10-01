@@ -114,9 +114,9 @@ private Expr arithConv(Expr opnd, Type commType)
     auto intexpr = cast(IntExpr)opnd;
     auto fexpr = cast(FloatExpr)opnd;
 
-    if (isInteger(commType))
+    if (intexpr && isInteger(commType))
     {
-        assert(fexpr, "No FP values are demoted into integers");
+        assert(!fexpr, "No FP values are demoted into integers");
 
         return new IntExpr(
             commType,
