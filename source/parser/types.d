@@ -219,6 +219,7 @@ bool isInteger(Type type)
     return (isSigned(type) || isUnsigned(type));
 }
 
+/// p 6.3.1.1 1
 /// Integer rank.
 uint8_t intRank(Type type)
 {

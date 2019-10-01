@@ -174,6 +174,16 @@ private Expr semaEvalLit(string op, Expr lhs, Expr rhs, Type commType)
     }
 }
 
+/// Semantic action on additive expressions.
+Expr semaAdd(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
+{
+    assert(op == "+" || op == "-");
+    assert(lhs && rhs);
+
+    // TODO.
+    return null;
+}
+
 /// Semantic action on multiplicative expressions.
 Expr semaMult(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
 {

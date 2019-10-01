@@ -102,34 +102,76 @@ Expr parseAssignment(ref TokenStream tokstr)
     return parseMultiplicative(tokstr);
 }
 
-/// multiplicative
-///     : cast
-///     | multiplicative ("*" | "/" | "%") multiplicative
-Expr parseMultiplicative(ref TokenStream tokstr)
+/// Gen code for parsing binary.
+private string genParseBinary(
+    string opndParser,
+    string[] ops,
+    string semanAct,
+    string tokstr = "tokstr")
 {
-    auto expr = parseCast(tokstr);
+    assert(ops.length != 0);
+
+    // Condition string.
+    auto conds = map!(( op => tokstr ~ ".peekSep(\"" ~ op ~ "\")" ))(ops).array;
+    auto cond = join(conds, " || ");
+
+    return format!"
+    auto expr = %s(%s);
 
     while (
-        expr &&
-        (tokstr.peekSep("*") ||
-        tokstr.peekSep("/") ||
-        tokstr.peekSep("%"))
+        expr && (%s)
     )
     {
-        auto optok = tokstr.read();
-        auto rhs = parseCast(tokstr);
+        auto optok = %s.read();
+        auto rhs = %s(tokstr);
         if (!rhs)
         {
             // Abort on errors.
             return null;
         }
-        expr = semaMult(
-            optok.stringVal, 
-            expr, 
-            rhs, 
-            SrcLoc(optok.pos, tokstr.filename));
+
+        expr = %s(
+            optok.stringVal,
+            expr,
+            rhs,
+            SrcLoc(optok.pos, %s.filename)
+        );
     }
+
     return expr;
+    "(
+        opndParser,
+        tokstr,
+        cond,
+        tokstr,
+        opndParser,
+        semanAct,
+        tokstr
+    );
+}
+
+/// additive
+///     : multiplicative
+///     | additive ("+"|"-") additive
+Expr parseAdditive(ref TokenStream tokstr)
+{
+    mixin(genParseBinary(
+        "parseMultiplicative",  /* opndParser */
+        ["+", "-"],             /* ops */
+        "semaAdd"               /* semantic action */
+    ));
+}
+
+/// multiplicative
+///     : cast
+///     | multiplicative ("*" | "/" | "%") multiplicative
+Expr parseMultiplicative(ref TokenStream tokstr)
+{
+    mixin(genParseBinary(
+        "parseCast",            /* opndParser */
+        ["*", "/", "%"],        /* ops */
+        "semaMult"              /* semantic action */
+    ));
 }
 
 /// cast
