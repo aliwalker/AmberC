@@ -649,7 +649,12 @@ private void trunc(S, U, N)(ref N val, SrcLoc loc)
 /// Semantic action on int literal.
 IntExpr semaInt(long val, string sfx, SrcLoc loc)
 {
-    switch (sfx)
+    import std.algorithm : map;
+    import std.ascii : toLower;
+    import std.array : array;
+
+    auto lcsfx = map!(toLower)(sfx).array;
+    switch (lcsfx)
     {
         case "":
             // Truncate overflow.
@@ -657,13 +662,11 @@ IntExpr semaInt(long val, string sfx, SrcLoc loc)
             return new IntExpr(intType, val, loc);
 
         // FIXME: for now assume these are fine.
-        case "l", "L":  return new IntExpr(longType, val, loc);
-        case "u", "U":  return new IntExpr(uintType, val, loc);
-
-        case "ul", "Ul", "uL", "UL":  return new IntExpr(ulongType, val, loc);
-        case "ll", "lL", "Ll", "LL":  return new IntExpr(llongType, val, loc);
-        case "ull", "Ull", "ULl", "UlL", "uLL", "ULL":
-            return new IntExpr(ullongType, val, loc);
+        case "l":   return new IntExpr(longType, val, loc);
+        case "u":   return new IntExpr(uintType, val, loc);
+        case "ul":  return new IntExpr(ulongType, val, loc);
+        case "ll":  return new IntExpr(llongType, val, loc);
+        case "ull": return new IntExpr(ullongType, val, loc);
 
         default:
             return semaErrExpr!IntExpr(
