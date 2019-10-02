@@ -145,7 +145,7 @@ private Expr arithConv(Expr opnd, Type commType)
 }
 
 /// Evaluate binary expressions.
-private Expr semaEvalLit(string op, Expr lhs, Expr rhs, Type commType)
+private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, Type commType)
 {
     assert(litExpr(lhs) && litExpr(rhs));
 
@@ -192,7 +192,7 @@ Expr semaAdd(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
 
         if (litExpr(lhs) && litExpr(rhs))
         {
-            return semaEvalLit(op, lhs, rhs, commType);
+            return semaEvalBinop(op, lhs, rhs, commType);
         }
 
         return new BinExpr(
@@ -304,7 +304,7 @@ Expr semaMult(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
     if (litExpr(lhs) && litExpr(rhs))
     {
         // Long as we can compute them.
-        return semaEvalLit(op, lhs, rhs, commType);
+        return semaEvalBinop(op, lhs, rhs, commType);
     }
 
     return new BinExpr(
