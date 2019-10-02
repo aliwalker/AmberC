@@ -99,7 +99,7 @@ Expr parseExpr(ref TokenStream tokstr)
 ///
 Expr parseAssignment(ref TokenStream tokstr)
 {
-    return parseMultiplicative(tokstr);
+    return parseAdditive(tokstr);
 }
 
 /// Gen code for parsing binary.

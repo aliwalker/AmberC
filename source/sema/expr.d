@@ -180,8 +180,79 @@ Expr semaAdd(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
     assert(op == "+" || op == "-");
     assert(lhs && rhs);
 
-    // TODO.
-    return null;
+    /*
+    Normal arithmetics.
+    */
+    if (isArithmetic(lhs.type) && isArithmetic(rhs.type))
+    {
+        auto commType = arithCommType(lhs.type, rhs.type);
+        lhs = arithConv(lhs, commType);
+        rhs = arithConv(rhs, commType);
+
+        return new BinExpr(
+            commType,
+            op,
+            lhs,
+            rhs,
+            opLoc
+        );
+    }
+
+    auto lptr = cast(PtrType)lhs.type;
+    auto rptr = cast(PtrType)rhs.type;
+    
+    /*
+    Ptr arithmetics.
+    */
+
+    // Both ptr.
+    if (lptr && rptr)
+    {
+        if (op != "-")
+        {
+            return semaErrExpr!Expr(
+                format!"invalid operands to binary expression ('%s' and '%s')"(lptr, rptr),
+                opLoc
+            );
+        }
+
+        // Incompatible ptr arithmetics.
+        else if (lptr != rptr)
+        {
+            return semaErrExpr!Expr(
+                format!"'%s' and '%s' are not pointers to compatible types"(lptr, rptr),
+                opLoc
+            );
+        }
+    }
+    // One is a ptr.
+    else if (lptr)
+    {
+        if (!isInteger(rhs.type))
+        {
+            return semaErrExpr!Expr(
+                format!"invalid operands to binary expression ('%s' and '%s')"(lptr, rhs.type),
+                opLoc
+            );
+        }
+    }
+    // [rptr] cannot be a ptr.
+    else
+    {
+        return semaErrExpr!Expr(
+            format!"invalid operands to binary expression ('%s' and '%s')"(lhs.type, rhs.type),
+            opLoc
+        );
+    }
+
+    assert(lptr);
+    return new BinExpr(
+        lptr,
+        op,
+        lhs,
+        rhs,
+        opLoc
+    );
 }
 
 /// Semantic action on multiplicative expressions.
