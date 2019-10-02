@@ -1379,6 +1379,15 @@ unittest
 unittest
 {
     uniProlog();
+    void testLit(T, N)(string code, N val)
+        if (is(T == IntExpr) || is(T == FloatExpr))
+    {
+        auto tokstr = TokenStream(code, "testParseCast.c");
+        auto expr = cast(T)parseCast(tokstr);
+        assert(expr);
+        assert(expr.value == val);
+    }
+
     void testValid(string code)
     {
         auto tokstr = TokenStream(code, "testParseCast.c");
@@ -1394,49 +1403,83 @@ unittest
         assert(!expr);
     }
 
-    testValid("(long)4");
+    testLit!(IntExpr, long)("(long)4", 4);
     testInvalid("(struct Foo)4");
     testValid("(struct Foo*)4");
     uniEpilog();
 }
 
-/// Test parseMult
+/// Test parseMultiplicative and parseAdditive.
 unittest
 {
     uniProlog();
 
-    void testLit(T, N = long)(string code, Type resType, N val = 0)
-        if (is (T == IntExpr) || is (T == FloatExpr))
+    void testLit(T, N)(
+        string code, 
+        Type resType, 
+        N val, 
+        Expr function(ref TokenStream) PARSER = &parseAdditive
+    ) if (is (T == IntExpr) || is (T == FloatExpr))
     {
         auto tokstr = TokenStream(code, "testParseMult.c");
-        auto expr = cast(T)parseMultiplicative(tokstr);
+        auto expr = cast(T)PARSER(tokstr);
+        assert(tokstr.peek().kind == Token.EOF);
         assert(expr);
         assert(expr.type == resType, "expect result type " ~ resType.toString());
         assert(expr.value == val, format!"expect value %s, but got %s"(val, expr.value));
     }
 
-    void testNonLit(string code, Type resType)
+    void testNonLit(
+        string code, 
+        Type resType, 
+        Expr function(ref TokenStream) PARSER = &parseAdditive)
     {
         auto tokstr = TokenStream(code, "testParseMult.c");
-        auto expr = cast(BinExpr)parseMultiplicative(tokstr);
+        auto expr = cast(BinExpr)PARSER(tokstr);
+        assert(tokstr.peek().kind == Token.EOF);
         assert(expr);
         assert(expr.type == resType, "expect result type " ~ resType.toString());
     }
 
+    void testInvalid(
+        string code, 
+        Expr function(ref TokenStream) PARSER = &parseAdditive)
+    {
+        auto tokstr = TokenStream(code, "testParseMult.c");
+        auto expr = cast(BinExpr)PARSER(tokstr);
+        assert(tokstr.peek().kind == Token.EOF);
+        assert(!expr);
+    }
+
     // Int literals.
-    testLit!(IntExpr)("4 * 5", intType, 20);
+    testLit!(IntExpr, long)("4 * 5", intType, 20);
+
+    // Cast literals.
+    testLit!(IntExpr, long)("(long)4 * 6", longType, 24);
 
     // Successive int literals.
-    testLit!(IntExpr)("4 * 5 * 2", intType, 40);
+    testLit!(IntExpr, long)("4 * 5 * 2", intType, 40);
 
     // Test left-assoc
-    testLit!(IntExpr)("4 * 5 % 5", intType, 0);
+    testLit!(IntExpr, long)("4 * 5 % 5", intType, 0);
 
     // Promote to float.
     testLit!(FloatExpr, double)("4 * 5.0", floatType, 20.0);
 
     // Promote to double.
     testLit!(FloatExpr, double)("4 * 5.0L", doubleType, 20.0);
+
+    // Int literals.
+    testLit!(IntExpr)("5 + 6", intType, 11);
+
+    // Integer promotion.
+    testLit!(IntExpr)("5 + 6L", longType, 11);
+
+    // Recursive-descent.
+    testLit!(IntExpr)("10 + 2 * 3", intType, 16);
+
+    // Precedence and promotion.
+    testLit!(IntExpr)("10 * 2 + 32 / 2L", longType, 36);
 
     envPush();
     envAddDecl("a", new VarDecl(
@@ -1451,6 +1494,12 @@ unittest
         null,
         SrcLoc()
     ));
+    envAddDecl("c", new VarDecl(
+        getPtrType(intType),
+        "c",
+        null,
+        SrcLoc()
+    ));
 
     // Promotes literal.
     testNonLit("a * 5", longType);
@@ -1458,8 +1507,25 @@ unittest
     // Promotes var.
     testNonLit("b * 5", intType);
 
+    // Promotes to signed.
+    testNonLit("a * b", longType);
+
     // Promotes both.
     testNonLit("a * 5UL", ulongType);
+
+    // Ptr as operand.
+    testInvalid("c * 5");
+
+    // Additive and mult.
+    testNonLit("a * 5 + 4", longType);
+
+    /*
+    Ptr arithmetic.
+    */
+
+    testNonLit("c + 2", getPtrType(intType));
+    testNonLit("c - c", getPtrType(intType));
+    testInvalid("c * 2");
 
     envPop();
     uniEpilog();

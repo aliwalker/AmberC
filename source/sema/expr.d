@@ -45,6 +45,7 @@ private bool isLvalue(Expr expr)
 }
 
 /// Whether expr is a constant literal.
+/// NOTE: compound literals are not taken as constant literals.
 private bool litExpr(Expr expr)
 {
     if (
@@ -189,6 +190,11 @@ Expr semaAdd(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
         lhs = arithConv(lhs, commType);
         rhs = arithConv(rhs, commType);
 
+        if (litExpr(lhs) && litExpr(rhs))
+        {
+            return semaEvalLit(op, lhs, rhs, commType);
+        }
+
         return new BinExpr(
             commType,
             op,
@@ -310,8 +316,47 @@ Expr semaMult(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
     );
 }
 
+// Convert [lit] expression to a literal of [type].
+private Expr litConv(Type type, Expr lit)
+{
+    assert(litExpr(lit) && isReal(type));
+
+    auto intexpr = cast(IntExpr)lit;
+    auto fexpr = cast(FloatExpr)lit;
+    auto strexpr = cast(StringExpr)lit;
+    auto strptr = (strexpr ? cast(char*)strexpr.value : null);
+
+    assert(intexpr || fexpr || strexpr);
+
+    // Integer.
+    if (isInteger(type))
+    {
+        return new IntExpr(
+            type,
+            (intexpr 
+                ? intexpr.value 
+                : (fexpr 
+                    ? cast(long)fexpr.value 
+                    : cast(long)strptr)),
+            lit.loc
+        );
+    }
+
+    // FP.
+    assert(isFP(type));
+    return new FloatExpr(
+        type,
+        (fexpr 
+            ? fexpr.value
+            : (intexpr
+                ? cast(double)intexpr.value
+                : cast(double)strptr)),
+        lit.loc
+    );
+}
+
 /// Semantic action on cast expressions.
-UnaryExpr semaCast(Type type, Expr opnd, SrcLoc parenLoc)
+Expr semaCast(Type type, Expr opnd, SrcLoc parenLoc)
 {
     assert(type && opnd);
 
@@ -342,6 +387,11 @@ UnaryExpr semaCast(Type type, Expr opnd, SrcLoc parenLoc)
     if (nonScalar(parenLoc, type) || nonScalar(opnd.loc, opnd.type))
     {
         goto NON_SCALAR_ERR;
+    }
+    // If this is a literal, cast it directly.
+    else if (isReal(type) && litExpr(opnd))
+    {
+        return litConv(type, opnd);
     }
     // Cast unary expression.
     else
