@@ -99,7 +99,7 @@ Expr parseExpr(ref TokenStream tokstr)
 ///
 Expr parseAssignment(ref TokenStream tokstr)
 {
-    return parseAdditive(tokstr);
+    return parseShift(tokstr);
 }
 
 /// Gen code for parsing binary.
@@ -148,6 +148,19 @@ private string genParseBinary(
         semanAct,
         tokstr
     );
+}
+
+/// shift
+///     : additive
+///     | shift "<<" additive
+///     | shift ">>" additive
+Expr parseShift(ref TokenStream tokstr)
+{
+    mixin(genParseBinary(
+        "parseAdditive",        /* opndParser */
+        ["<<", ">>"],           /* ops */
+        "semaShift"
+    ));
 }
 
 /// additive
@@ -1409,7 +1422,7 @@ unittest
     uniEpilog();
 }
 
-/// Test parseMultiplicative and parseAdditive.
+/// Test parseBinary.
 unittest
 {
     uniProlog();
@@ -1418,7 +1431,7 @@ unittest
         string code, 
         Type resType, 
         N val, 
-        Expr function(ref TokenStream) PARSER = &parseAdditive
+        Expr function(ref TokenStream) PARSER = &parseShift
     ) if (is (T == IntExpr) || is (T == FloatExpr))
     {
         auto tokstr = TokenStream(code, "testParseMult.c");
@@ -1432,7 +1445,7 @@ unittest
     void testNonLit(
         string code, 
         Type resType, 
-        Expr function(ref TokenStream) PARSER = &parseAdditive)
+        Expr function(ref TokenStream) PARSER = &parseShift)
     {
         auto tokstr = TokenStream(code, "testParseMult.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
@@ -1443,13 +1456,17 @@ unittest
 
     void testInvalid(
         string code, 
-        Expr function(ref TokenStream) PARSER = &parseAdditive)
+        Expr function(ref TokenStream) PARSER = &parseShift)
     {
         auto tokstr = TokenStream(code, "testParseMult.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
         assert(tokstr.peek().kind == Token.EOF);
         assert(!expr);
     }
+
+    /*
+    Multiplicative
+    */
 
     // Int literals.
     testLit!(IntExpr, long)("4 * 5", intType, 20);
@@ -1469,17 +1486,34 @@ unittest
     // Promote to double.
     testLit!(FloatExpr, double)("4 * 5.0L", doubleType, 20.0);
 
+    /*
+    Additive
+    */
+
     // Int literals.
-    testLit!(IntExpr)("5 + 6", intType, 11);
+    testLit!(IntExpr, long)("5 + 6", intType, 11);
 
     // Integer promotion.
-    testLit!(IntExpr)("5 + 6L", longType, 11);
+    testLit!(IntExpr, long)("5 + 6L", longType, 11);
 
     // Recursive-descent.
-    testLit!(IntExpr)("10 + 2 * 3", intType, 16);
+    testLit!(IntExpr, long)("10 + 2 * 3", intType, 16);
 
     // Precedence and promotion.
-    testLit!(IntExpr)("10 * 2 + 32 / 2L", longType, 36);
+    testLit!(IntExpr, long)("10 * 2 + 32 / 2L", longType, 36);
+
+    /*
+    Shift
+    */
+
+    // Int literals.
+    testLit!(IntExpr, long)("20 << 2", intType, 80);
+
+    // Integer promotion.
+    testLit!(IntExpr, long)("20L << 2", longType, 80);
+
+    // Precedence.
+    testLit!(IntExpr, long)("20 * 2 + 2 << 2", intType, 168);
 
     envPush();
     envAddDecl("a", new VarDecl(
@@ -1519,6 +1553,8 @@ unittest
     // Additive and mult.
     testNonLit("a * 5 + 4", longType);
 
+    testNonLit("b << 33", intType);
+
     /*
     Ptr arithmetic.
     */
@@ -1526,6 +1562,8 @@ unittest
     testNonLit("c + 2", getPtrType(intType));
     testNonLit("c - c", getPtrType(intType));
     testInvalid("c * 2");
+
+    testInvalid("23.0 << 2");
 
     envPop();
     uniEpilog();

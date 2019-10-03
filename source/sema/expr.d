@@ -10,7 +10,7 @@ import sema.env;
 import reporter;
 
 /// Simple wrapper for reporting an error and return null.
-private T semaErrExpr(T)(string msg, SrcLoc loc)
+private T semaErrExpr(T = Expr)(string msg, SrcLoc loc)
     if (is (T : Expr))
 {
     report(
@@ -170,9 +170,59 @@ private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, Type commType)
         case "%":   mixin(genLitExpr("%"));
         case "+":   mixin(genLitExpr("+"));
         case "-":   mixin(genLitExpr("-"));
+        case "<<":  return new IntExpr(commType, lintexpr.value << rintexpr.value, lhs.loc);
+        case ">>":  return new IntExpr(commType, lintexpr.value >> rintexpr.value, lhs.loc);
         default:
             assert(false);
     }
+}
+
+/// Semantic action on shift expressions.
+Expr semaShift(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
+{
+    assert(op == "<<" || op == ">>");
+    assert(lhs && rhs);
+
+    if (!isInteger(lhs.type) || !isInteger(rhs.type))
+    {
+        return semaErrExpr(
+            format!"Invalid operands to binary expression ('%s' and '%s')"(lhs.type, rhs.type),
+            opLoc
+        );
+    }
+
+    if (litExpr(rhs))
+    {
+        auto rint = cast(IntExpr)rhs;
+        auto shamnt = rint.value;
+
+        if (shamnt > lhs.type.typeSize() * 8)
+        {
+            report(
+                SVR_WARN, 
+                "shift count >= width of type",
+                opLoc
+            );
+        }
+    }
+
+    auto commType = arithCommType(lhs.type, rhs.type);
+    lhs = arithConv(lhs, commType);
+    rhs = arithConv(rhs, commType);
+
+    // Evaluate the result if they're both constant literals.
+    if (litExpr(lhs) && litExpr(rhs))
+    {
+        return semaEvalBinop(op, lhs, rhs, commType);
+    }
+
+    return new BinExpr(
+        commType,
+        op,
+        lhs,
+        rhs,
+        opLoc
+    );
 }
 
 /// Semantic action on additive expressions.
