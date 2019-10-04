@@ -1309,6 +1309,17 @@ unittest
         auto expr = parseUnary(tokstr);
         assert(!expr, msg);
     }
+
+    // Bool_not on string will always return 0.
+    auto sexpr = testValid!IntExpr("!\"a string\"");
+    assert(sexpr.value == 0);
+
+    // Bool_not on integer.
+    assert(testValid!IntExpr("!23").value == 0);
+
+    // Inversion.
+    assert(testValid!IntExpr("~0x10").value == -17);
+
     /// Fall back to parsePostfix().
     testValid!UnaryExpr("a++");
 

@@ -449,7 +449,6 @@ private Expr litConv(Type type, Expr lit, SrcLoc parenLoc)
     auto intexpr = cast(IntExpr)lit;
     auto fexpr = cast(FloatExpr)lit;
     auto strexpr = cast(StringExpr)lit;
-    auto strptr = (strexpr ? cast(char*)strexpr.value : null);
 
     assert(intexpr || fexpr || strexpr);
 
@@ -541,8 +540,54 @@ NON_SCALAR_ERR:
     );
 }
 
+private Expr semaEvalUAOp(Type type, string op, Expr opnd, SrcLoc opLoc)
+{
+    assert(litExpr(opnd));
+    auto intexpr = cast(IntExpr)opnd;
+    auto fexpr = cast(FloatExpr)opnd;
+    auto sexpr = cast(StringExpr)opnd;
+
+    assert(intexpr || fexpr || sexpr);
+    
+    string genUAOp(string op)
+    {
+        return format!"
+        assert(intexpr || fexpr, \"sexpr is not expected\");
+
+        if (intexpr)
+        {
+            return new IntExpr(type, %sintexpr.value, opLoc);
+        }
+        else
+        {
+            return new FloatExpr(type, %sfexpr.value, opLoc);
+        }
+        "(op, op);
+    }
+
+    switch (op)
+    {
+        case "+":   mixin(genUAOp("+"));
+        case "-":   mixin(genUAOp("-"));
+        case "~":   return new IntExpr(type, ~intexpr.value, opLoc);
+        case "!":
+            // This will always be false.
+            if (sexpr)
+            {
+                return new IntExpr(
+                    intType,
+                    0,
+                    opLoc
+                );
+            }
+            mixin(genUAOp("!"));
+        default:
+            assert(false, "Unknown unary operator: " ~ op);
+    }
+}
+
 /// Semantic action on unary arithmetic operators.
-UnaryExpr semaUAOp(string op, Expr opnd, SrcLoc oploc)
+Expr semaUAOp(string op, Expr opnd, SrcLoc oploc)
 {
     UnaryExpr.Kind kind;
     Type resType;
@@ -582,21 +627,26 @@ UnaryExpr semaUAOp(string op, Expr opnd, SrcLoc oploc)
         else
         {
             kind = UnaryExpr.BOOL_NOT;
-            resType = boolType;
+            resType = intType;
             goto DONE;
         }
         
         default:
-            assert(false);
+            assert(false, "unknown unary operator: " ~ op);
     }
 
 INVALID_OPND:
-    return semaErrExpr!UnaryExpr(
+    return semaErrExpr(
         format!"invalid operand type '%s' for unary expression"(opnd.type),
         oploc
     );
 
 DONE:
+    if (litExpr(opnd))
+    {
+        return semaEvalUAOp(resType, op, opnd, oploc);
+    }
+
     return new UnaryExpr(
         kind,
         resType,
