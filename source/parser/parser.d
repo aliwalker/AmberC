@@ -99,7 +99,7 @@ Expr parseExpr(ref TokenStream tokstr)
 ///
 Expr parseAssignment(ref TokenStream tokstr)
 {
-    return parseShift(tokstr);
+    return parseRelational(tokstr);
 }
 
 /// Gen code for parsing binary.
@@ -148,6 +148,18 @@ private string genParseBinary(
         semanAct,
         tokstr
     );
+}
+
+/// relational
+///     : shift
+///     | relational ("<" | ">" | "<=" | ">=") shift
+Expr parseRelational(ref TokenStream tokstr)
+{
+    mixin(genParseBinary(
+        "parseShift",
+        ["<", ">", "<=", ">="],
+        "semaRel"
+    ));
 }
 
 /// shift
@@ -1431,7 +1443,7 @@ unittest
         string code, 
         Type resType, 
         N val, 
-        Expr function(ref TokenStream) PARSER = &parseShift
+        Expr function(ref TokenStream) PARSER = &parseRelational
     ) if (is (T == IntExpr) || is (T == FloatExpr))
     {
         auto tokstr = TokenStream(code, "testParseMult.c");
@@ -1445,18 +1457,18 @@ unittest
     void testNonLit(
         string code, 
         Type resType, 
-        Expr function(ref TokenStream) PARSER = &parseShift)
+        Expr function(ref TokenStream) PARSER = &parseRelational)
     {
         auto tokstr = TokenStream(code, "testParseMult.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
         assert(tokstr.peek().kind == Token.EOF);
         assert(expr);
-        assert(expr.type == resType, "expect result type " ~ resType.toString());
+        assert(expr.type == resType, format!"expect result type '%s', but got '%s'"(resType, expr.type));
     }
 
     void testInvalid(
         string code, 
-        Expr function(ref TokenStream) PARSER = &parseShift)
+        Expr function(ref TokenStream) PARSER = &parseRelational)
     {
         auto tokstr = TokenStream(code, "testParseMult.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
@@ -1515,6 +1527,16 @@ unittest
     // Precedence.
     testLit!(IntExpr, long)("20 * 2 + 2 << 2", intType, 168);
 
+    /*
+    Relational
+    */
+
+    // Int literals.
+    testLit!(IntExpr, long)("2 < 1", intType, 0);
+
+    // Int literals.
+    testLit!(IntExpr, long)("23 >= 23", intType, 1);
+
     envPush();
     envAddDecl("a", new VarDecl(
         longType,
@@ -1563,7 +1585,17 @@ unittest
     testNonLit("c - c", getPtrType(intType));
     testInvalid("c * 2");
 
+    /*
+    FP shifts are invalid.
+    */
     testInvalid("23.0 << 2");
+
+    /*
+    Ptr relational.
+    */
+    testNonLit("c > 0", intType);
+
+    testNonLit("c >= c", intType);
 
     envPop();
     uniEpilog();

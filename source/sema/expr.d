@@ -172,9 +172,64 @@ private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, Type commType)
         case "-":   mixin(genLitExpr("-"));
         case "<<":  return new IntExpr(commType, lintexpr.value << rintexpr.value, lhs.loc);
         case ">>":  return new IntExpr(commType, lintexpr.value >> rintexpr.value, lhs.loc);
+        case "<":   mixin(genLitExpr("<"));
+        case ">":   mixin(genLitExpr(">"));
+        case "<=":  mixin(genLitExpr("<="));
+        case ">=":  mixin(genLitExpr(">="));
         default:
             assert(false);
     }
+}
+
+/// Semantic action on relational expressions.
+Expr semaRel(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
+{
+    assert(op == "<" || op == ">" || op == ">=" || op == "<=");
+    assert(lhs && rhs);
+
+    // Either both operands are of real type, or both operands are of
+    // ptr types.
+    if (
+        !(isReal(lhs.type) && isReal(rhs.type))             &&
+        !(cast(PtrType)lhs.type && cast(PtrType)rhs.type)   &&
+        !(cast(PtrType)lhs.type && isInteger(rhs.type))     &&
+        !(cast(PtrType)rhs.type && isInteger(lhs.type))
+    )
+    {
+        return semaErrExpr(
+            format!"Invalid operands to binary expression ('%s' and '%s')"(lhs.type, rhs.type),
+            opLoc
+        );
+    }
+
+    auto lptr = cast(PtrType)lhs.type;
+    auto rptr = cast(PtrType)rhs.type;
+
+    if (lptr && rptr && (lptr != rptr))
+    {
+        report(
+            SVR_WARN,
+            format!"comparison of distinct pointer types ('%s' and '%s')"(lhs.type, rhs.type),
+            opLoc
+        );
+    }
+
+    // Evaluate literal if possible.
+    if (litExpr(lhs) && litExpr(rhs))
+    {
+        auto commType = arithCommType(lhs.type, rhs.type);
+        lhs = arithConv(lhs, commType);
+        rhs = arithConv(rhs, commType);
+        return semaEvalBinop(op, lhs, rhs, intType/* Always return int type */);
+    }
+
+    return new BinExpr(
+        intType,    /* Always return int type. */
+        op,
+        lhs,
+        rhs,
+        opLoc
+    );
 }
 
 /// Semantic action on shift expressions.
