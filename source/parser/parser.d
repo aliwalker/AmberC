@@ -150,6 +150,19 @@ private string genParseBinary(
     );
 }
 
+/// equality
+///     : relational
+///     | quality "==" relational
+///     | equality "!=" relational
+Expr parseEquality(ref TokenStream tokstr)
+{
+    mixin(genParseBinary(
+        "parseRelational",
+        ["==", "!="],
+        "semaEq"
+    ));
+}
+
 /// relational
 ///     : shift
 ///     | relational ("<" | ">" | "<=" | ">=") shift
@@ -1404,20 +1417,22 @@ unittest
 unittest
 {
     uniProlog();
-    void testLit(T, N)(string code, N val)
+    void testLit(T, N)(string code, Type restype, N val)
         if (is(T == IntExpr) || is(T == FloatExpr))
     {
         auto tokstr = TokenStream(code, "testParseCast.c");
         auto expr = cast(T)parseCast(tokstr);
         assert(expr);
+        assert(expr.type == restype);
         assert(expr.value == val);
     }
 
-    void testValid(string code)
+    void testNonLit(string code, Type type)
     {
         auto tokstr = TokenStream(code, "testParseCast.c");
         auto expr = cast(UnaryExpr)parseCast(tokstr);
         assert(expr);
+        assert(expr.type == type);
         assert(expr.kind == UnaryExpr.CAST);
     }
 
@@ -1428,9 +1443,14 @@ unittest
         assert(!expr);
     }
 
-    testLit!(IntExpr, long)("(long)4", 4);
+    testLit!(IntExpr, long)("(long)4", longType, 4);
     testInvalid("(struct Foo)4");
-    testValid("(struct Foo*)4");
+    testLit!(IntExpr, long)(
+        "(struct Foo*)4", 
+        getPtrType(
+            getRecType("Foo")), 
+        4);
+    testNonLit("(void *)\"a small string\"", getPtrType(voidType));
     uniEpilog();
 }
 

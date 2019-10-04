@@ -22,7 +22,7 @@ private T semaErrExpr(T = Expr)(string msg, SrcLoc loc)
     return null;
 }
 
-/// Abort and report an error if [expr] is not an lvalue.
+/// Whether [expr] locates an object.
 private bool isLvalue(Expr expr)
 {
     if (cast(IdentExpr)expr || cast (MemberExpr)expr)
@@ -39,6 +39,17 @@ private bool isLvalue(Expr expr)
             default:
                 break;
         }
+    }
+
+    return false;
+}
+
+/// Whether [expr] is a 'NULL' constant.
+private bool isNull(Expr expr)
+{
+    if (auto intexpr = cast(IntExpr)expr)
+    {
+        return (cast(PtrType)intexpr.type && intexpr.value == 0);
     }
 
     return false;
@@ -179,6 +190,15 @@ private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, Type commType)
         default:
             assert(false);
     }
+}
+
+/// Semantic action on equality expressions.
+Expr semaEq(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
+{
+    assert(op == "==" || op == "!=");
+    assert(lhs && rhs);
+
+    return null;
 }
 
 /// Semantic action on relational expressions.
@@ -422,9 +442,9 @@ Expr semaMult(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
 }
 
 // Convert [lit] expression to a literal of [type].
-private Expr litConv(Type type, Expr lit)
+private Expr litConv(Type type, Expr lit, SrcLoc parenLoc)
 {
-    assert(litExpr(lit) && isReal(type));
+    assert(litExpr(lit) && isScalar(type));
 
     auto intexpr = cast(IntExpr)lit;
     auto fexpr = cast(FloatExpr)lit;
@@ -433,17 +453,26 @@ private Expr litConv(Type type, Expr lit)
 
     assert(intexpr || fexpr || strexpr);
 
+    // String's address is not determined yet.
+    if (strexpr)
+    {
+        return new UnaryExpr(
+            UnaryExpr.CAST,
+            type,
+            lit,
+            parenLoc
+        );
+    }
+
+    assert(intexpr || fexpr);
+
     // Integer.
-    if (isInteger(type))
+    if (isInteger(type) || cast(PtrType)type)
     {
         return new IntExpr(
             type,
-            (intexpr 
-                ? intexpr.value 
-                : (fexpr 
-                    ? cast(long)fexpr.value 
-                    : cast(long)strptr)),
-            lit.loc
+            (intexpr ? intexpr.value : cast(long)fexpr.value),
+            parenLoc
         );
     }
 
@@ -451,12 +480,8 @@ private Expr litConv(Type type, Expr lit)
     assert(isFP(type));
     return new FloatExpr(
         type,
-        (fexpr 
-            ? fexpr.value
-            : (intexpr
-                ? cast(double)intexpr.value
-                : cast(double)strptr)),
-        lit.loc
+        (intexpr ? intexpr.value : cast(long)fexpr.value),
+        parenLoc
     );
 }
 
@@ -494,9 +519,9 @@ Expr semaCast(Type type, Expr opnd, SrcLoc parenLoc)
         goto NON_SCALAR_ERR;
     }
     // If this is a literal, cast it directly.
-    else if (isReal(type) && litExpr(opnd))
+    else if (isScalar(type) && litExpr(opnd))
     {
-        return litConv(type, opnd);
+        return litConv(type, opnd, parenLoc);
     }
     // Cast unary expression.
     else

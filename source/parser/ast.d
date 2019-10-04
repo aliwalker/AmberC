@@ -67,7 +67,8 @@ class IntExpr : Expr
             type == ushortType  ||
             type == uintType    ||
             type == ulongType   ||
-            type == ullongType
+            type == ullongType  ||
+            (cast(PtrType)type) // NULL constant
         );
 
         super(type, loc);
