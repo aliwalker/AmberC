@@ -159,7 +159,7 @@ Expr parseEquality(ref TokenStream tokstr)
     mixin(genParseBinary(
         "parseRelational",
         ["==", "!="],
-        "semaEq"
+        "semaEqRel"
     ));
 }
 
@@ -171,7 +171,7 @@ Expr parseRelational(ref TokenStream tokstr)
     mixin(genParseBinary(
         "parseShift",
         ["<", ">", "<=", ">="],
-        "semaRel"
+        "semaEqRel"
     ));
 }
 

@@ -167,10 +167,24 @@ private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, Type commType)
 
     string genLitExpr(string op)
     {
+        // For integer types that can be represented in 'long' in D,
+        // no cast is needed. For 'unsigned long' and 'unsigned long long' in C,
+        // we'll have to explicitly reinterpret the bit patterns.
         return format!"
         return fp
-            ? new FloatExpr(commType, lfexpr.value %s rfexpr.value, lhs.loc)
-            : new IntExpr(commType, lintexpr.value %s rintexpr.value, lhs.loc);"(op, op);
+            ? new FloatExpr(
+                commType, 
+                lfexpr.value %s rfexpr.value, 
+                lhs.loc)
+            : (commType.kind == Type.ULONG || commType.kind == Type.ULLONG)
+                ? new IntExpr(
+                    commType,
+                    cast(ulong)lintexpr.value %s cast(ulong)rintexpr.value,
+                    lhs.loc)
+                : new IntExpr(
+                    commType,
+                    lintexpr.value %s rintexpr.value,
+                    lhs.loc);"(op, op, op);
     }
 
     auto fp = isFP(commType);
@@ -192,25 +206,17 @@ private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, Type commType)
     }
 }
 
-/// Semantic action on equality expressions.
-Expr semaEq(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
+/// Semantic action on equality or relational expressions.
+Expr semaEqRel(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
 {
-    assert(op == "==" || op == "!=");
+    assert(op == "<" || op == ">" || op == ">=" || op == "<=" || op == "==" || op == "!=");
     assert(lhs && rhs);
 
-    return null;
-}
-
-/// Semantic action on relational expressions.
-Expr semaRel(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
-{
-    assert(op == "<" || op == ">" || op == ">=" || op == "<=");
-    assert(lhs && rhs);
-
+    // FIXME: array comparisons are not allowed for now.
     // Either both operands are of real type, or both operands are of
     // ptr types.
     if (
-        !(isReal(lhs.type) && isReal(rhs.type))             &&
+        !(isArithmetic(lhs.type) && isArithmetic(rhs.type)) &&
         !(cast(PtrType)lhs.type && cast(PtrType)rhs.type)   &&
         !(cast(PtrType)lhs.type && isInteger(rhs.type))     &&
         !(cast(PtrType)rhs.type && isInteger(lhs.type))
@@ -225,21 +231,45 @@ Expr semaRel(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
     auto lptr = cast(PtrType)lhs.type;
     auto rptr = cast(PtrType)rhs.type;
 
-    if (lptr && rptr && (lptr != rptr))
+    // Ptr comparisons.
+    if (lptr && rptr)
     {
-        report(
-            SVR_WARN,
-            format!"comparison of distinct pointer types ('%s' and '%s')"(lhs.type, rhs.type),
-            opLoc
-        );
+        if (isNull(lhs) && !isNull(rhs))
+        {
+            lhs = new IntExpr(
+                rhs.type,
+                0,
+                lhs.loc
+            );
+        }
+        else if (isNull(rhs) && !isNull(lhs))
+        {
+            rhs = new IntExpr(
+                lhs.type,
+                0,
+                rhs.loc
+            );
+        }
+        else if (lptr != rptr)
+        {
+            report(
+                SVR_WARN,
+                format!"comparison of distinct pointer types ('%s' and '%s')"(lhs.type, rhs.type),
+                opLoc
+            );
+        }
     }
 
-    // Evaluate literal if possible.
-    if (litExpr(lhs) && litExpr(rhs))
+    if (isArithmetic(lhs.type) && isArithmetic(rhs.type))
     {
         auto commType = arithCommType(lhs.type, rhs.type);
         lhs = arithConv(lhs, commType);
         rhs = arithConv(rhs, commType);
+    }
+    
+    // Evaluate literal if possible.
+    if (litExpr(lhs) && litExpr(rhs))
+    {
         return semaEvalBinop(op, lhs, rhs, intType/* Always return int type */);
     }
 
