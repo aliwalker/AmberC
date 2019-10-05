@@ -99,7 +99,7 @@ Expr parseExpr(ref TokenStream tokstr)
 ///
 Expr parseAssignment(ref TokenStream tokstr)
 {
-    return parseBitwiseN(tokstr);
+    return parseBitwiseXOR(tokstr);
 }
 
 /// Gen code for parsing binary.
@@ -150,16 +150,27 @@ private string genParseBinary(
     );
 }
 
+/// bitwise-XOR
+///     : bitwise-AND
+///     | bitwise-XOR "^" bitwise-AND
+Expr parseBitwiseXOR(ref TokenStream tokstr)
+{
+    mixin(genParseBinary(
+        "parseBitwiseN",
+        ["^"],
+        "semaBitwiseOp"
+    ));
+}
 
-/// bitwise-and
+/// bitwise-AND
 ///     : equality
-///     | bitwise-and & equality
+///     | bitwise-AND "&" equality
 Expr parseBitwiseN(ref TokenStream tokstr)
 {
     mixin(genParseBinary(
         "parseEquality",        /* opndParser */
         ["&"],                  /* ops */
-        "semaBitwiseN"          /* semantic action */
+        "semaBitwiseOp"          /* semantic action */
     ));
 }
 
@@ -1487,7 +1498,7 @@ unittest
         string code, 
         Type resType, 
         N val, 
-        Expr function(ref TokenStream) PARSER = &parseBitwiseN
+        Expr function(ref TokenStream) PARSER = &parseBitwiseXOR
     ) if (is (T == IntExpr) || is (T == FloatExpr))
     {
         auto tokstr = TokenStream(code, "testParseBinary.c");
@@ -1495,13 +1506,13 @@ unittest
         assert(tokstr.peek().kind == Token.EOF);
         assert(expr);
         assert(expr.type == resType, "expect result type " ~ resType.toString());
-        assert(expr.value == val, format!"expect value %s, but got %s"(val, expr.value));
+        assert(expr.value == val, format!"expect value '%s(%x)', but got '%s(%x)'"(val, val, expr.value, expr.value));
     }
 
     void testNonLit(
         string code, 
         Type resType, 
-        Expr function(ref TokenStream) PARSER = &parseBitwiseN)
+        Expr function(ref TokenStream) PARSER = &parseBitwiseXOR)
     {
         auto tokstr = TokenStream(code, "testParseBinary.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
@@ -1512,7 +1523,7 @@ unittest
 
     void testInvalid(
         string code, 
-        Expr function(ref TokenStream) PARSER = &parseBitwiseN)
+        Expr function(ref TokenStream) PARSER = &parseBitwiseXOR)
     {
         auto tokstr = TokenStream(code, "testParseBinary.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
@@ -1609,6 +1620,14 @@ unittest
     testLit!(IntExpr, long)("0xF001 & 0xFF00", intType, 0xF000);
 
     testLit!(IntExpr, long)("0xF001 & 0xFF00 & 0xE000", intType, 0xE000);
+
+    /*
+    Bitwise-XOR
+    */
+    testLit!(IntExpr, long)("0x1001 ^ 0x0110", intType, 0x1111);
+
+    // Precedence.
+    testLit!(IntExpr, long)("0x0110 ^ 0x0000 & 0x1001 ", intType, 0x0110);
 
     envPush();
     envAddDecl("a", new VarDecl(

@@ -206,15 +206,17 @@ private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, Type commType)
         case "==":  mixin(genLitExpr("=="));
         case "!=":  mixin(genLitExpr("!="));
         case "&":   return new IntExpr(commType, lintexpr.value & rintexpr.value, lhs.loc);
+        case "^":   return new IntExpr(commType, lintexpr.value ^ rintexpr.value, lhs.loc);
+        case "|":   return new IntExpr(commType, lintexpr.value | rintexpr.value, lhs.loc);
         default:
             assert(false);
     }
 }
 
 /// Semantic action on bitwise-and expression.
-Expr semaBitwiseN(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
+Expr semaBitwiseOp(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
 {
-    assert(op == "&");
+    assert(op == "&" || op == "^" || op == "|");
     assert(lhs && rhs);
 
     if (!isInteger(lhs.type) || !isInteger(rhs.type))
