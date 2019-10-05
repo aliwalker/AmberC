@@ -164,6 +164,10 @@ private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, Type commType)
     auto lfexpr = cast(FloatExpr)lhs;
     auto rintexpr = cast(IntExpr)rhs;
     auto rfexpr = cast(FloatExpr)rhs;
+    assert(
+        (lintexpr && rintexpr) ||
+        (lfexpr && rfexpr)
+    );
 
     string genLitExpr(string op)
     {
@@ -256,8 +260,8 @@ Expr semaEqRel(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
     if (
         !(isArithmetic(lhs.type) && isArithmetic(rhs.type)) &&
         !(cast(PtrType)lhs.type && cast(PtrType)rhs.type)   &&
-        !(cast(PtrType)lhs.type && isInteger(rhs.type))     &&
-        !(cast(PtrType)rhs.type && isInteger(lhs.type))
+        !(cast(PtrType)lhs.type && cast(IntExpr)rhs)     &&
+        !(cast(PtrType)rhs.type && cast(IntExpr)lhs)
     )
     {
         return semaErrExpr(
@@ -298,6 +302,22 @@ Expr semaEqRel(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
             report(
                 SVR_WARN,
                 format!"comparison of distinct pointer types ('%s' and '%s')"(lhs.type, rhs.type),
+                opLoc
+            );
+        }
+        else if (cast(StringExpr)lhs && cast(StringExpr)rhs)
+        {
+            report(
+                SVR_WARN,
+                "comparison against a string literal is not specified, use 'strcmp' instead",
+                opLoc
+            );
+
+            return new BinExpr(
+                intType,    /* Always return int type. */
+                op,
+                lhs,
+                rhs,
                 opLoc
             );
         }

@@ -150,9 +150,21 @@ private string genParseBinary(
     );
 }
 
+/// logical-AND
+///     : bitwise-OR
+///     | logical-AND "&&" bitwise-OR
+// Expr parseLogicalN(ref TokenStream tokstr)
+// {
+//     mixin(genParseBinary(
+//         "parseBitwiseOR",
+//         ["&&"],
+//         "semaLogical"
+//     ));
+// }
+
 /// bitwise-OR
 ///     : bitwise-XOR
-///     | btwise-OR | bitwise-XOR
+///     | btwise-OR "|" bitwise-XOR
 Expr parseBitwiseOR(ref TokenStream tokstr)
 {
     mixin(genParseBinary(
