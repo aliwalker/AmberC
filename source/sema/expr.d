@@ -170,6 +170,8 @@ private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, Type commType)
         // For integer types that can be represented in 'long' in D,
         // no cast is needed. For 'unsigned long' and 'unsigned long long' in C,
         // we'll have to explicitly reinterpret the bit patterns.
+        //
+        // When operands are of ptr types, we'll ignore the types.
         return format!"
         return fp
             ? new FloatExpr(
@@ -201,6 +203,8 @@ private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, Type commType)
         case ">":   mixin(genLitExpr(">"));
         case "<=":  mixin(genLitExpr("<="));
         case ">=":  mixin(genLitExpr(">="));
+        case "==":  mixin(genLitExpr("=="));
+        case "!=":  mixin(genLitExpr("!="));
         default:
             assert(false);
     }
@@ -228,29 +232,34 @@ Expr semaEqRel(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
         );
     }
 
+    Expr convPtr(Expr a, Expr b)
+    {
+        if (isNull(a) && !isNull(b))
+        {
+            return new IntExpr(b.type, 0, a.loc);
+        }
+
+        if (
+            a.type == getPtrType(voidType) &&
+            b.type != getPtrType(voidType)
+        )
+        {
+            // FIXME: this could be problematic.
+            a.type = b.type;
+        }
+        return a;
+    }
+
     auto lptr = cast(PtrType)lhs.type;
     auto rptr = cast(PtrType)rhs.type;
 
     // Ptr comparisons.
     if (lptr && rptr)
     {
-        if (isNull(lhs) && !isNull(rhs))
-        {
-            lhs = new IntExpr(
-                rhs.type,
-                0,
-                lhs.loc
-            );
-        }
-        else if (isNull(rhs) && !isNull(lhs))
-        {
-            rhs = new IntExpr(
-                lhs.type,
-                0,
-                rhs.loc
-            );
-        }
-        else if (lptr != rptr)
+        lhs = convPtr(lhs, rhs);
+        rhs = convPtr(rhs, lhs);
+
+        if (lhs.type != rhs.type)
         {
             report(
                 SVR_WARN,

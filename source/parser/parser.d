@@ -99,7 +99,7 @@ Expr parseExpr(ref TokenStream tokstr)
 ///
 Expr parseAssignment(ref TokenStream tokstr)
 {
-    return parseRelational(tokstr);
+    return parseEquality(tokstr);
 }
 
 /// Gen code for parsing binary.
@@ -1474,10 +1474,10 @@ unittest
         string code, 
         Type resType, 
         N val, 
-        Expr function(ref TokenStream) PARSER = &parseRelational
+        Expr function(ref TokenStream) PARSER = &parseEquality
     ) if (is (T == IntExpr) || is (T == FloatExpr))
     {
-        auto tokstr = TokenStream(code, "testParseMult.c");
+        auto tokstr = TokenStream(code, "testParseBinary.c");
         auto expr = cast(T)PARSER(tokstr);
         assert(tokstr.peek().kind == Token.EOF);
         assert(expr);
@@ -1488,9 +1488,9 @@ unittest
     void testNonLit(
         string code, 
         Type resType, 
-        Expr function(ref TokenStream) PARSER = &parseRelational)
+        Expr function(ref TokenStream) PARSER = &parseEquality)
     {
-        auto tokstr = TokenStream(code, "testParseMult.c");
+        auto tokstr = TokenStream(code, "testParseBinary.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
         assert(tokstr.peek().kind == Token.EOF);
         assert(expr);
@@ -1499,9 +1499,9 @@ unittest
 
     void testInvalid(
         string code, 
-        Expr function(ref TokenStream) PARSER = &parseRelational)
+        Expr function(ref TokenStream) PARSER = &parseEquality)
     {
-        auto tokstr = TokenStream(code, "testParseMult.c");
+        auto tokstr = TokenStream(code, "testParseBinary.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
         assert(tokstr.peek().kind == Token.EOF);
         assert(!expr);
@@ -1568,6 +1568,28 @@ unittest
     // Int literals.
     testLit!(IntExpr, long)("23 >= 23", intType, 1);
 
+    /*
+    Equality
+    */
+
+    // Int literals.
+    testLit!(IntExpr, long)("1 == 1", intType, 1);
+
+    // Precedence.
+    testLit!(IntExpr, long)("1 == 1 > 0", intType, 1);
+
+    // Precedence.
+    testLit!(IntExpr, long)("1 == 1 < 0", intType, 0);
+
+    // Ptr literals.
+    testLit!(IntExpr, long)("(char*)0 == (char*)0", intType, 1);
+
+    // Ptr literals.
+    testLit!(IntExpr, long)("(void*)0 == (char*)0", intType, 1);
+
+    // Ptr literals.
+    testLit!(IntExpr, long)("(char*)0 == (int*)0", intType, 1);
+
     envPush();
     envAddDecl("a", new VarDecl(
         longType,
@@ -1584,6 +1606,12 @@ unittest
     envAddDecl("c", new VarDecl(
         getPtrType(intType),
         "c",
+        null,
+        SrcLoc()
+    ));
+    envAddDecl("d", new VarDecl(
+        getPtrType(intType),
+        "d",
         null,
         SrcLoc()
     ));
@@ -1628,6 +1656,7 @@ unittest
 
     testNonLit("c >= c", intType);
 
+    testNonLit("c == d", intType);
     envPop();
     uniEpilog();
 }
