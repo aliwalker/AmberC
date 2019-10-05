@@ -205,9 +205,41 @@ private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, Type commType)
         case ">=":  mixin(genLitExpr(">="));
         case "==":  mixin(genLitExpr("=="));
         case "!=":  mixin(genLitExpr("!="));
+        case "&":   return new IntExpr(commType, lintexpr.value & rintexpr.value, lhs.loc);
         default:
             assert(false);
     }
+}
+
+/// Semantic action on bitwise-and expression.
+Expr semaBitwiseN(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
+{
+    assert(op == "&");
+    assert(lhs && rhs);
+
+    if (!isInteger(lhs.type) || !isInteger(rhs.type))
+    {
+        return semaErrExpr(
+            format!"Invalid operands to binary expression ('%s' and '%s')"(lhs.type, rhs.type),
+            opLoc
+        );
+    }
+
+    auto commType = arithCommType(lhs.type, rhs.type);
+    lhs = arithConv(lhs, commType);
+    rhs = arithConv(rhs, commType);
+
+    if (litExpr(lhs) && litExpr(rhs))
+    {
+        return semaEvalBinop(op, lhs, rhs, commType);
+    }
+    return new BinExpr(
+        commType,
+        op,
+        lhs,
+        rhs,
+        opLoc
+    );
 }
 
 /// Semantic action on equality or relational expressions.

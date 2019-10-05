@@ -99,7 +99,7 @@ Expr parseExpr(ref TokenStream tokstr)
 ///
 Expr parseAssignment(ref TokenStream tokstr)
 {
-    return parseEquality(tokstr);
+    return parseBitwiseN(tokstr);
 }
 
 /// Gen code for parsing binary.
@@ -150,6 +150,19 @@ private string genParseBinary(
     );
 }
 
+
+/// bitwise-and
+///     : equality
+///     | bitwise-and & equality
+Expr parseBitwiseN(ref TokenStream tokstr)
+{
+    mixin(genParseBinary(
+        "parseEquality",        /* opndParser */
+        ["&"],                  /* ops */
+        "semaBitwiseN"          /* semantic action */
+    ));
+}
+
 /// equality
 ///     : relational
 ///     | quality "==" relational
@@ -157,9 +170,9 @@ private string genParseBinary(
 Expr parseEquality(ref TokenStream tokstr)
 {
     mixin(genParseBinary(
-        "parseRelational",
-        ["==", "!="],
-        "semaEqRel"
+        "parseRelational",      /* opndParser */
+        ["==", "!="],           /* ops */
+        "semaEqRel"             /* semantic action */
     ));
 }
 
@@ -169,9 +182,9 @@ Expr parseEquality(ref TokenStream tokstr)
 Expr parseRelational(ref TokenStream tokstr)
 {
     mixin(genParseBinary(
-        "parseShift",
-        ["<", ">", "<=", ">="],
-        "semaEqRel"
+        "parseShift",           /* opndParser */
+        ["<", ">", "<=", ">="], /* ops */
+        "semaEqRel"             /* semantic action */
     ));
 }
 
@@ -184,7 +197,7 @@ Expr parseShift(ref TokenStream tokstr)
     mixin(genParseBinary(
         "parseAdditive",        /* opndParser */
         ["<<", ">>"],           /* ops */
-        "semaShift"
+        "semaShift"             /* semantic action */
     ));
 }
 
@@ -1474,7 +1487,7 @@ unittest
         string code, 
         Type resType, 
         N val, 
-        Expr function(ref TokenStream) PARSER = &parseEquality
+        Expr function(ref TokenStream) PARSER = &parseBitwiseN
     ) if (is (T == IntExpr) || is (T == FloatExpr))
     {
         auto tokstr = TokenStream(code, "testParseBinary.c");
@@ -1488,7 +1501,7 @@ unittest
     void testNonLit(
         string code, 
         Type resType, 
-        Expr function(ref TokenStream) PARSER = &parseEquality)
+        Expr function(ref TokenStream) PARSER = &parseBitwiseN)
     {
         auto tokstr = TokenStream(code, "testParseBinary.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
@@ -1499,7 +1512,7 @@ unittest
 
     void testInvalid(
         string code, 
-        Expr function(ref TokenStream) PARSER = &parseEquality)
+        Expr function(ref TokenStream) PARSER = &parseBitwiseN)
     {
         auto tokstr = TokenStream(code, "testParseBinary.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
@@ -1589,6 +1602,13 @@ unittest
 
     // Ptr literals.
     testLit!(IntExpr, long)("(char*)0 == (int*)0", intType, 1);
+
+    /*
+    Bitwise-AND
+    */
+    testLit!(IntExpr, long)("0xF001 & 0xFF00", intType, 0xF000);
+
+    testLit!(IntExpr, long)("0xF001 & 0xFF00 & 0xE000", intType, 0xE000);
 
     envPush();
     envAddDecl("a", new VarDecl(
