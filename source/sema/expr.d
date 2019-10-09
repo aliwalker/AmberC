@@ -212,12 +212,48 @@ private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, Type commType)
         case "&":   return new IntExpr(commType, lintexpr.value & rintexpr.value, lhs.loc);
         case "^":   return new IntExpr(commType, lintexpr.value ^ rintexpr.value, lhs.loc);
         case "|":   return new IntExpr(commType, lintexpr.value | rintexpr.value, lhs.loc);
+        case "&&":  mixin(genLitExpr("&&"));
+        case "||":  mixin(genLitExpr("||"));
         default:
             assert(false);
     }
 }
 
-/// Semantic action on bitwise-and expression.
+/// Semantic action on logical expresssions.
+Expr semaLogical(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
+{
+    assert(op == "&&" || op == "||");
+    assert(lhs && rhs);
+
+    if (!isScalar(lhs.type) || !isScalar(rhs.type))
+    {
+        return semaErrExpr(
+            format!"Invalid operands to binary expression ('%s' and '%s')"(lhs.type, rhs.type),
+            opLoc
+        );
+    }
+
+    if (isArithmetic(lhs.type) && isArithmetic(rhs.type))
+    {
+        auto commType = arithCommType(lhs.type, rhs.type);
+        lhs = arithConv(lhs, commType);
+        rhs = arithConv(rhs, commType);
+
+        if (litExpr(lhs) && litExpr(rhs))
+        {
+            return semaEvalBinop(op, lhs, rhs, commType);
+        }
+    }
+    return new BinExpr(
+        intType,
+        op,
+        lhs,
+        rhs,
+        opLoc
+    );
+}
+
+/// Semantic action on bitwise-and expressions.
 Expr semaBitwiseOp(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
 {
     assert(op == "&" || op == "^" || op == "|");

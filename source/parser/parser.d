@@ -99,7 +99,7 @@ Expr parseExpr(ref TokenStream tokstr)
 ///
 Expr parseAssignment(ref TokenStream tokstr)
 {
-    return parseBitwiseOR(tokstr);
+    return parseLogicalN(tokstr);
 }
 
 /// Gen code for parsing binary.
@@ -153,14 +153,14 @@ private string genParseBinary(
 /// logical-AND
 ///     : bitwise-OR
 ///     | logical-AND "&&" bitwise-OR
-// Expr parseLogicalN(ref TokenStream tokstr)
-// {
-//     mixin(genParseBinary(
-//         "parseBitwiseOR",
-//         ["&&"],
-//         "semaLogical"
-//     ));
-// }
+Expr parseLogicalN(ref TokenStream tokstr)
+{
+    mixin(genParseBinary(
+        "parseBitwiseOR",
+        ["&&"],
+        "semaLogical"
+    ));
+}
 
 /// bitwise-OR
 ///     : bitwise-XOR
@@ -1522,7 +1522,7 @@ unittest
         string code, 
         Type resType, 
         N val, 
-        Expr function(ref TokenStream) PARSER = &parseBitwiseOR
+        Expr function(ref TokenStream) PARSER = &parseLogicalN
     ) if (is (T == IntExpr) || is (T == FloatExpr))
     {
         auto tokstr = TokenStream(code, "testParseBinary.c");
@@ -1536,7 +1536,7 @@ unittest
     void testNonLit(
         string code, 
         Type resType, 
-        Expr function(ref TokenStream) PARSER = &parseBitwiseOR)
+        Expr function(ref TokenStream) PARSER = &parseLogicalN)
     {
         auto tokstr = TokenStream(code, "testParseBinary.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
@@ -1547,7 +1547,7 @@ unittest
 
     void testInvalid(
         string code, 
-        Expr function(ref TokenStream) PARSER = &parseBitwiseOR)
+        Expr function(ref TokenStream) PARSER = &parseLogicalN)
     {
         auto tokstr = TokenStream(code, "testParseBinary.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
@@ -1660,6 +1660,14 @@ unittest
 
     // Precedence.
     testLit!(IntExpr, long)("0x1000 | 0x0110 ^ 0x0000 & 0x1001 ", intType, 0x1110);
+
+    /*
+    Logical-AND
+    */
+    testLit!(IntExpr, long)("1 && 2", intType, 1);
+
+    // Precedence.
+    testLit!(IntExpr, long)("1 && 0 ^ 1", intType, 1);
 
     envPush();
     envAddDecl("a", new VarDecl(
