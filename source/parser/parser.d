@@ -150,6 +150,18 @@ private string genParseBinary(
     );
 }
 
+/// logical-OR
+///     : logical-AND
+///     | logical-OR "||" logical-AND
+Expr parseLogicalOR(ref TokenStream tokstr)
+{
+    mixin(genParseBinary(
+        "parseLogicalN",
+        ["||"],
+        "semaLogical"
+    ));
+}
+
 /// logical-AND
 ///     : bitwise-OR
 ///     | logical-AND "&&" bitwise-OR
@@ -1522,7 +1534,7 @@ unittest
         string code, 
         Type resType, 
         N val, 
-        Expr function(ref TokenStream) PARSER = &parseLogicalN
+        Expr function(ref TokenStream) PARSER = &parseLogicalOR
     ) if (is (T == IntExpr) || is (T == FloatExpr))
     {
         auto tokstr = TokenStream(code, "testParseBinary.c");
@@ -1536,7 +1548,7 @@ unittest
     void testNonLit(
         string code, 
         Type resType, 
-        Expr function(ref TokenStream) PARSER = &parseLogicalN)
+        Expr function(ref TokenStream) PARSER = &parseLogicalOR)
     {
         auto tokstr = TokenStream(code, "testParseBinary.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
@@ -1547,7 +1559,7 @@ unittest
 
     void testInvalid(
         string code, 
-        Expr function(ref TokenStream) PARSER = &parseLogicalN)
+        Expr function(ref TokenStream) PARSER = &parseLogicalOR)
     {
         auto tokstr = TokenStream(code, "testParseBinary.c");
         auto expr = cast(BinExpr)PARSER(tokstr);
@@ -1662,12 +1674,16 @@ unittest
     testLit!(IntExpr, long)("0x1000 | 0x0110 ^ 0x0000 & 0x1001 ", intType, 0x1110);
 
     /*
-    Logical-AND
+    Logical-AND and logical-OR
     */
     testLit!(IntExpr, long)("1 && 2", intType, 1);
 
     // Precedence.
     testLit!(IntExpr, long)("1 && 0 ^ 1", intType, 1);
+
+    testLit!(IntExpr, long)("1 && 0 || 1", intType, 1);
+
+    testLit!(IntExpr, long)("(void*)1 && (char*)2", intType, 1);
 
     envPush();
     envAddDecl("a", new VarDecl(

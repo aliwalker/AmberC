@@ -238,11 +238,11 @@ Expr semaLogical(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
         auto commType = arithCommType(lhs.type, rhs.type);
         lhs = arithConv(lhs, commType);
         rhs = arithConv(rhs, commType);
+    }
 
-        if (litExpr(lhs) && litExpr(rhs))
-        {
-            return semaEvalBinop(op, lhs, rhs, commType);
-        }
+    if (litExpr(lhs) && litExpr(rhs))
+    {
+        return semaEvalBinop(op, lhs, rhs, intType);
     }
     return new BinExpr(
         intType,
