@@ -99,7 +99,7 @@ Expr parseExpr(ref TokenStream tokstr)
 ///
 Expr parseAssignment(ref TokenStream tokstr)
 {
-    return parseLogicalN(tokstr);
+    return parseLogicalOR(tokstr);
 }
 
 /// Gen code for parsing binary.
@@ -1685,6 +1685,10 @@ unittest
 
     testLit!(IntExpr, long)("(void*)1 && (char*)2", intType, 1);
 
+    testLit!(IntExpr, long)("1 && 20 && 0 || 0", intType, 0);
+
+    testLit!(IntExpr, long)("\"stringLit\" && \"stringLit2\"", intType, 1);
+
     envPush();
     envAddDecl("a", new VarDecl(
         longType,
@@ -1752,6 +1756,8 @@ unittest
     testNonLit("c >= c", intType);
 
     testNonLit("c == d", intType);
+
+    testNonLit("\"string a\" > \"string b\"", intType);
     envPop();
     uniEpilog();
 }

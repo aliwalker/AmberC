@@ -283,6 +283,30 @@ class BinExpr : Expr
     }
 }
 
+/// Represents a conditional expression.
+class CondExpr : Expr
+{
+    /// Condition.
+    Expr cond;
+
+    /// Value when [cond] is true.
+    Expr thenExpr;
+
+    /// Value when [cond] is false.
+    Expr elseExpr;
+
+    /// Constructor.
+    this(Type type, Expr cond, Expr thenExpr, Expr elseExpr, SrcLoc loc)
+    {
+        assert(type && cond && thenExpr && elseExpr);
+        super(type, loc);
+
+        this.cond = cond;
+        this.thenExpr = thenExpr;
+        this.elseExpr = elseExpr;
+    }
+}
+
 /// Represents an assignment.
 class AssignExpr : Expr
 {

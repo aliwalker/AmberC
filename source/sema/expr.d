@@ -242,8 +242,20 @@ Expr semaLogical(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
 
     if (litExpr(lhs) && litExpr(rhs))
     {
+        // String literals are treated as 1.
+        if (cast(StringExpr)lhs)
+        {
+            lhs = new IntExpr(intType, 1, lhs.loc);
+        }
+
+        if (cast(StringExpr)rhs)
+        {
+            rhs = new IntExpr(intType, 1, rhs.loc);
+        }
+
         return semaEvalBinop(op, lhs, rhs, intType);
     }
+
     return new BinExpr(
         intType,
         op,
@@ -327,7 +339,7 @@ Expr semaEqRel(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
     auto lptr = cast(PtrType)lhs.type;
     auto rptr = cast(PtrType)rhs.type;
 
-    // Ptr comparisons.
+    // Ptr comparisons. String literals included.
     if (lptr && rptr)
     {
         lhs = convPtr(lhs, rhs);
