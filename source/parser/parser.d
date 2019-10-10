@@ -99,7 +99,29 @@ Expr parseExpr(ref TokenStream tokstr)
 ///
 Expr parseAssignment(ref TokenStream tokstr)
 {
-    return parseLogicalOR(tokstr);
+    return parseCondExpr(tokstr);
+}
+
+/// conditional-expr
+///     : logical-OR
+///     | logical-OR "?" expression ":" conditional-expr
+Expr parseCondExpr(ref TokenStream tokstr)
+{
+    auto expr = parseLogicalOR(tokstr);
+    auto opLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
+
+    if (expr && tokstr.matchSep("?"))
+    {
+        auto first = parseExpr(tokstr);
+        
+        // Only recurse when the syntax is correct.
+        if (expectSep(tokstr, ":"))
+        {
+            auto sec = parseCondExpr(tokstr);
+            expr = semaCondExpr(expr, first, sec, opLoc);
+        }
+    }
+    return expr;
 }
 
 /// Gen code for parsing binary.
@@ -1758,6 +1780,68 @@ unittest
     testNonLit("c == d", intType);
 
     testNonLit("\"string a\" > \"string b\"", intType);
+    envPop();
+    uniEpilog();
+}
+
+/// Test parseCondExpr.
+unittest
+{
+    uniProlog();
+    T testCondExpr(T = CondExpr)(string code)
+    {
+        auto tokstr = TokenStream(code, "testParseCondExpr.c");
+        auto expr = cast(T)parseCondExpr(tokstr);
+        assert(tokstr.peek().kind == Token.EOF);
+        assert(expr);
+        return expr;
+    }
+
+    void testInvalid(string code)
+    {
+        auto tokstr = TokenStream(code, "testParseCondExpr.c");
+        auto expr = parseCondExpr(tokstr);
+
+        assert(!expr);
+    }
+
+    envPush();
+    envAddDecl("a", new VarDecl(
+        longType,
+        "a",
+        null,
+        SrcLoc()
+    ));
+    envAddDecl("b", new VarDecl(
+        shortType,
+        "b",
+        null,
+        SrcLoc(),
+    ));
+
+    /// Non-literal
+    testCondExpr("a ? \"string A\" : \"string B\"");
+
+    /// Integer literal cond.
+    auto sexpr = testCondExpr!(StringExpr)("1 ? \"string A\" : \"string B\"");
+    assert(sexpr.value == "string A");
+
+    /// String literal cond.
+    sexpr = testCondExpr!(StringExpr)("\"s\" ? \"a\" : \"b\"");
+    assert(sexpr.value == "a");
+
+    /// Arithmetic conversion.
+    auto longexpr = testCondExpr!(IntExpr)("1 ? 1 : 2L");
+    assert(longexpr.value == 1);
+    assert(longexpr.type == longType);
+
+    /// Pointer conversions.
+    auto ptrexpr = testCondExpr!(UnaryExpr)("1 ? &a : (void*)0");
+    assert(ptrexpr.type == getPtrType(longType));
+
+    /// Incompatible sec & thrd opnds.
+    testInvalid("0 ? \"fff\" : 12");
+
     envPop();
     uniEpilog();
 }

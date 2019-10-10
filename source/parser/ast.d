@@ -290,20 +290,20 @@ class CondExpr : Expr
     Expr cond;
 
     /// Value when [cond] is true.
-    Expr thenExpr;
+    Expr first;
 
     /// Value when [cond] is false.
-    Expr elseExpr;
+    Expr sec;
 
     /// Constructor.
-    this(Type type, Expr cond, Expr thenExpr, Expr elseExpr, SrcLoc loc)
+    this(Type type, Expr cond, Expr first, Expr sec, SrcLoc loc)
     {
-        assert(type && cond && thenExpr && elseExpr);
+        assert(type && cond && first && sec);
         super(type, loc);
 
         this.cond = cond;
-        this.thenExpr = thenExpr;
-        this.elseExpr = elseExpr;
+        this.first = first;
+        this.sec = sec;
     }
 }
 

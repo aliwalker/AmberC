@@ -112,9 +112,14 @@ private Type arithCommType(Type a, Type b)
 }
 
 /// Convert expr [opnd] into an expr with [commType] type.
-private Expr arithConv(Expr opnd, Type commType)
+/// This helper exists mainly for handling both literals and non-literals.
+/// For literals, the result will be a new IntExpr or FloatExpr;
+/// otherwise the result wil be a UnaryExpr of CAST kind.
+private Expr opndConv(Expr opnd, Type commType)
 {
-    assert(isArithmetic(opnd.type) && isArithmetic(commType));
+    assert((isArithmetic(opnd.type) && isArithmetic(commType)) ||
+        ((cast(PtrType)opnd.type) && (cast(PtrType)commType)),
+        "Only arithmetics and ptrs are allowed for conversions");
 
     if (opnd.type == commType)
     {
@@ -153,6 +158,168 @@ private Expr arithConv(Expr opnd, Type commType)
         opnd,
         opnd.loc
     );
+}
+
+/// Convert [ptr] according to the type of [other]
+private Expr ptrConv(Expr ptr, Expr other)
+{
+    assert(ptr && other);
+    assert(cast(PtrType)ptr.type && cast(PtrType)other.type);
+
+    // Do not convert when they're already equal.
+    if (ptr.type == other.type)
+    {
+        return ptr;
+    }
+
+    // Cast the type of NULL.
+    if (isNull(ptr) && !isNull(other))
+    {
+        return new IntExpr(other.type, 0, ptr.loc);
+    }
+
+    // Cast the type of void*.
+    if (
+        ptr.type == getPtrType(voidType) &&
+        other.type != getPtrType(voidType)
+    )
+    {
+        // FIXME: this could be problematic.
+        ptr.type = other.type;
+    }
+
+    // TODO: Handle arithmetic pointer conversions.
+    return ptr;
+}
+
+/// Evaluate at compile time.
+private Expr semaEvalCondExpr(Expr cond, Expr fst, Expr sec)
+{
+    assert(cond && fst && sec);
+    assert(litExpr(cond));
+
+    if (auto str = cast(StringExpr)cond)
+    {
+        return fst;
+    }
+
+    if (auto inte = cast(IntExpr)cond)
+    {
+        return inte.value ? fst : sec;
+    }
+
+    if (auto fe = cast(FloatExpr)cond)
+    {
+        return fe.value ? fst : sec;
+    }
+
+    assert(false);
+}
+
+/// Semantic action on conditional expressions.
+Expr semaCondExpr(Expr cond, Expr fst, Expr sec, SrcLoc opLoc)
+{
+    assert(cond && fst && sec);
+
+    if (!isScalar(cond.type))
+    {
+        return semaErrExpr(
+            format!"used type '%s' where arithmetic or pointer type is required"(cond.type),
+            cond.loc
+        );
+    }
+
+    if (isArithmetic(fst.type) && isArithmetic(sec.type))
+    {
+        auto commType = arithCommType(fst.type, sec.type);
+        fst = opndConv(fst, commType);
+        sec = opndConv(sec, commType);
+        return (litExpr(cond) 
+            ? semaEvalCondExpr(cond, fst, sec) 
+            : new CondExpr(
+                commType,
+                cond,
+                fst,
+                sec,
+                opLoc
+            ));
+    }
+
+    // Compatible record types.
+    else if (cast(RecType)fst.type && cast(RecType)sec.type)
+    {
+        auto fstType = cast(RecType)fst.type;
+        auto secType = cast(RecType)sec.type;
+
+        if (fstType != secType)
+        {
+            return semaErrExpr(
+                format!"incompatible operand types ('%s' and '%s')"(fstType, secType),
+                fst.loc
+            );
+        }
+        return (litExpr(cond)
+            ? semaEvalCondExpr(cond, fst, sec)
+            : new CondExpr(
+                fstType,
+                cond,
+                fst,
+                sec,
+                opLoc
+            ));
+    }
+
+    // When both operands are of void type, the result is of void type.
+    else if (fst.type == voidType && sec.type == voidType)
+    {
+        return (litExpr(cond)
+            ? semaEvalCondExpr(cond, fst, sec)
+            : new CondExpr(
+                voidType,
+                cond,
+                fst,
+                sec,
+                opLoc
+            ));
+    }
+
+    // Both ptrs.
+    else if (cast(PtrType)fst.type && cast(PtrType)sec.type)
+    {
+        // Convert NULL and void*.
+        fst = ptrConv(fst, sec);
+        sec = ptrConv(sec, fst);
+
+        auto fstType = cast(PtrType)fst.type;
+        auto secType = cast(PtrType)sec.type;
+
+        // We'll not allow incompatible ptr types.
+        if (fstType != secType)
+        {
+            return semaErrExpr(
+                format!"pointer type mismatch ('%s' and '%s')"(fstType, secType),
+                opLoc
+            );
+        }
+
+        return (litExpr(cond)
+            ? semaEvalCondExpr(cond, fst, sec)
+            : new CondExpr(
+                fstType,
+                cond,
+                fst,
+                sec,
+                opLoc
+            ));
+    }
+
+    else
+    {
+        return semaErrExpr(
+            format!"incompatible operand types ('%s' and '%s')"(fst.type, sec.type),
+            fst.loc
+        );
+    }
 }
 
 /// Evaluate binary expressions.
@@ -236,8 +403,8 @@ Expr semaLogical(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
     if (isArithmetic(lhs.type) && isArithmetic(rhs.type))
     {
         auto commType = arithCommType(lhs.type, rhs.type);
-        lhs = arithConv(lhs, commType);
-        rhs = arithConv(rhs, commType);
+        lhs = opndConv(lhs, commType);
+        rhs = opndConv(rhs, commType);
     }
 
     if (litExpr(lhs) && litExpr(rhs))
@@ -280,8 +447,8 @@ Expr semaBitwiseOp(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
     }
 
     auto commType = arithCommType(lhs.type, rhs.type);
-    lhs = arithConv(lhs, commType);
-    rhs = arithConv(rhs, commType);
+    lhs = opndConv(lhs, commType);
+    rhs = opndConv(rhs, commType);
 
     if (litExpr(lhs) && litExpr(rhs))
     {
@@ -318,32 +485,14 @@ Expr semaEqRel(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
         );
     }
 
-    Expr convPtr(Expr a, Expr b)
-    {
-        if (isNull(a) && !isNull(b))
-        {
-            return new IntExpr(b.type, 0, a.loc);
-        }
-
-        if (
-            a.type == getPtrType(voidType) &&
-            b.type != getPtrType(voidType)
-        )
-        {
-            // FIXME: this could be problematic.
-            a.type = b.type;
-        }
-        return a;
-    }
-
     auto lptr = cast(PtrType)lhs.type;
     auto rptr = cast(PtrType)rhs.type;
 
     // Ptr comparisons. String literals included.
     if (lptr && rptr)
     {
-        lhs = convPtr(lhs, rhs);
-        rhs = convPtr(rhs, lhs);
+        lhs = ptrConv(lhs, rhs);
+        rhs = ptrConv(rhs, lhs);
 
         if (lhs.type != rhs.type)
         {
@@ -374,8 +523,8 @@ Expr semaEqRel(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
     if (isArithmetic(lhs.type) && isArithmetic(rhs.type))
     {
         auto commType = arithCommType(lhs.type, rhs.type);
-        lhs = arithConv(lhs, commType);
-        rhs = arithConv(rhs, commType);
+        lhs = opndConv(lhs, commType);
+        rhs = opndConv(rhs, commType);
     }
     
     // Evaluate literal if possible.
@@ -423,8 +572,8 @@ Expr semaShift(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
     }
 
     auto commType = arithCommType(lhs.type, rhs.type);
-    lhs = arithConv(lhs, commType);
-    rhs = arithConv(rhs, commType);
+    lhs = opndConv(lhs, commType);
+    rhs = opndConv(rhs, commType);
 
     // Evaluate the result if they're both constant literals.
     if (litExpr(lhs) && litExpr(rhs))
@@ -453,8 +602,8 @@ Expr semaAdd(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
     if (isArithmetic(lhs.type) && isArithmetic(rhs.type))
     {
         auto commType = arithCommType(lhs.type, rhs.type);
-        lhs = arithConv(lhs, commType);
-        rhs = arithConv(rhs, commType);
+        lhs = opndConv(lhs, commType);
+        rhs = opndConv(rhs, commType);
 
         if (litExpr(lhs) && litExpr(rhs))
         {
@@ -565,8 +714,8 @@ Expr semaMult(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
     // Obtain common type.
     auto commType = arithCommType(lhs.type, rhs.type);
     
-    lhs = arithConv(lhs, commType);
-    rhs = arithConv(rhs, commType);
+    lhs = opndConv(lhs, commType);
+    rhs = opndConv(rhs, commType);
     if (litExpr(lhs) && litExpr(rhs))
     {
         // Long as we can compute them.
