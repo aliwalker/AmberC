@@ -14,6 +14,7 @@ import sema.expr;
 import sema.env;
 import reporter;
 debug import std.stdio;
+debug import parser.ast_dumper;
 
 private T parseErrorImp(T)(ref TokenStream tokstr, string msg, SrcLoc loc)
 {
@@ -1228,6 +1229,8 @@ unittest
         assert(expr !is null);
         assert(expr.value == ast.value);
         assert(expr.type == ast.type);
+        writeln("src: " ~ code);
+        dumpExpr(expr);
     }
 
     // Test integer.
@@ -1338,6 +1341,7 @@ unittest
         auto expr = cast(CallExpr)parsePostfix(tokstr);
         assert(expr);
         assert(cast(IdentExpr)expr.callee);
+        dumpExpr(expr);
 
         envPop();
     }
@@ -1382,6 +1386,8 @@ unittest
         assert(expr, msg);
         assert(cast(T)expr, msg);
 
+        writeln("src: " ~ code);
+        dumpExpr(expr);
         return cast(T)expr;
     }
 
@@ -1518,6 +1524,8 @@ unittest
         assert(expr);
         assert(expr.type == restype);
         assert(expr.value == val);
+        writeln("src: " ~ code);
+        dumpExpr(expr);
     }
 
     void testNonLit(string code, Type type)
@@ -1527,6 +1535,8 @@ unittest
         assert(expr);
         assert(expr.type == type);
         assert(expr.kind == UnaryExpr.CAST);
+        writeln("src: " ~ code);
+        dumpExpr(expr);
     }
 
     void testInvalid(string code)
@@ -1565,6 +1575,8 @@ unittest
         assert(expr);
         assert(expr.type == resType, "expect result type " ~ resType.toString());
         assert(expr.value == val, format!"expect value '%s(%x)', but got '%s(%x)'"(val, val, expr.value, expr.value));
+        writeln("src: " ~ code);
+        dumpExpr(expr);
     }
 
     void testNonLit(
@@ -1577,6 +1589,8 @@ unittest
         assert(tokstr.peek().kind == Token.EOF);
         assert(expr);
         assert(expr.type == resType, format!"expect result type '%s', but got '%s'"(resType, expr.type));
+        writeln("src: " ~ code);
+        dumpExpr(expr);
     }
 
     void testInvalid(
@@ -1794,6 +1808,8 @@ unittest
         auto expr = cast(T)parseCondExpr(tokstr);
         assert(tokstr.peek().kind == Token.EOF);
         assert(expr);
+        writeln("src: " ~ code);
+        dumpExpr(expr);
         return expr;
     }
 
@@ -1838,6 +1854,12 @@ unittest
     /// Pointer conversions.
     auto ptrexpr = testCondExpr!(UnaryExpr)("1 ? &a : (void*)0");
     assert(ptrexpr.type == getPtrType(longType));
+
+    /// Parse nested conditional expressions.
+    auto nsted = testCondExpr("1 ? &a ? 1 : 0 : 3");
+    auto intexpr = testCondExpr!(IntExpr)("1 ? 1 ? 1 : 0 : 3");
+    assert(intexpr.value == 1);
+    assert(intexpr.type == intType);
 
     /// Incompatible sec & thrd opnds.
     testInvalid("0 ? \"fff\" : 12");

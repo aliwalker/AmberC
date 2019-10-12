@@ -189,6 +189,26 @@ class UnaryExpr : Expr
         this.kind = kind;
     }
 
+    /// Operator string.
+    string opstring() const
+    {
+        final switch (kind)
+        {
+            case DECAY:     return "decay";
+            case CAST:      return "cast";
+            case ADDR_OF:   return "address_of";
+            case DEREF:     return "deref";
+            case MINUS:     return "minus";
+            case POST_DECR: return "postfix_decrement";
+            case POST_INCR: return "postfix_increment";
+            case PREF_DECR: return "prefix_decrement";
+            case PREF_INCR: return "prefix_increment";
+            case BIT_NOT:   return "bit_not";
+            case BOOL_NOT:  return "bool_not";
+        }
+    }
+
+    /// TODO: remove this.
     override string toString()
     {
         final switch (kind)
