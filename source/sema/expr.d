@@ -343,7 +343,52 @@ private Expr semaSimpAssign(Expr lhs, Expr rhs, SrcLoc opLoc)
 private Expr semaCompAssign(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
 {
     assert(lhs && rhs);
-    return null;
+    
+    if (op == "+=" || op == "-=")
+    {
+        if (
+            !(cast(PtrType)lhs.type && isInteger(rhs.type)) &&
+            !(isArithmetic(lhs.type) && isArithmetic(rhs.type))
+        )
+        {
+            return semaErrExpr(
+                format!"invalid operands to binary expression('%s' and '%s')"(lhs.type, rhs.type),
+                opLoc
+            );
+        }
+
+        auto bin = semaAdd(op[0..1], lhs, rhs, opLoc);
+        return (bin 
+            ? new AssignExpr(
+                lhs.type,
+                op,
+                lhs,
+                rhs,
+                opLoc
+            )
+            : null);
+    }
+
+    else
+    {
+        if (!isArithmetic(lhs.type) || !isArithmetic(rhs.type))
+        {
+            return semaErrExpr(
+                format!"invalid operands to binary expression('%s' and '%s')"(lhs.type, rhs.type),
+                opLoc
+            );
+        }
+        auto bin = semaMult(op[0..1], lhs, rhs, opLoc);
+        return (bin
+            ? new AssignExpr(
+                lhs.type,
+                op,
+                lhs,
+                rhs,
+                opLoc
+            )
+            : null);
+    }
 }
 
 /// Semantic action on conditional expressions.

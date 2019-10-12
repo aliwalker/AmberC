@@ -1894,6 +1894,7 @@ unittest
         
         assert(tokstr.peek().kind == Token.EOF);
         assert(expr);
+        writefln("src: \"%s\"", code);
         dumpExpr(expr);
     }
 
@@ -1934,8 +1935,11 @@ unittest
     testValid("a = 23");
     testValid("a = 23.1");
     testValid("b = &a");
+    testValid("a += 23");
+    testValid("a *= 2");
     testInvalid("fooStruc = barStruc");
     testInvalid("22 = 22");
+    testInvalid("b += b");
 
     envPop();
     uniEpilog();

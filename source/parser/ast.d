@@ -355,6 +355,7 @@ class AssignExpr : Expr
         );
 
         super(resType, loc);
+        this.op = op;
         this.lhs = lhs;
         this.rhs = rhs;
     }
