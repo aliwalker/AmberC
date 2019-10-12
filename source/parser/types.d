@@ -216,7 +216,7 @@ Type getSigned(Type type)
 /// Integer?
 bool isInteger(Type type)
 {
-    return (isSigned(type) || isUnsigned(type));
+    return (isSigned(type) || isUnsigned(type) || (type == boolType));
 }
 
 /// p 6.3.1.1 1

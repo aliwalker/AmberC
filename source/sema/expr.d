@@ -127,18 +127,19 @@ private Expr opndConv(Expr opnd, Type commType)
         return opnd;
     }
 
-    // If [opnd] is a literal, we'll convert them directly.
+    /*
+    Literal conversions are performed at compile-time.
+    */
+
     auto intexpr = cast(IntExpr)opnd;
     auto fexpr = cast(FloatExpr)opnd;
 
-    if (intexpr && isInteger(commType))
+    if ((intexpr || fexpr) && isInteger(commType))
     {
-        assert(!fexpr, "No FP values are demoted into integers");
-
         return new IntExpr(
             commType,
-            intexpr.value,
-            intexpr.loc
+            (intexpr ? intexpr.value : cast(int)fexpr.value),
+            (intexpr ? intexpr.loc : fexpr.loc)
         );
     }
 
@@ -151,7 +152,9 @@ private Expr opndConv(Expr opnd, Type commType)
         );
     }
 
-    // Implicit cast is necessary.
+    /*
+    Non-literal.
+    */
     return new UnaryExpr(
         UnaryExpr.CAST,
         commType,
@@ -214,6 +217,133 @@ private Expr semaEvalCondExpr(Expr cond, Expr fst, Expr sec)
     }
 
     assert(false);
+}
+
+/// Semantic action on assignment.
+Expr semaAssign(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
+{
+    assert(lhs && rhs);
+
+    if (!isLvalue(lhs))
+    {
+        return semaErrExpr(
+            "expression is not assignable",
+            opLoc
+        );
+    }
+
+    if (lhs.type.qual & QUAL_CONST)
+    {
+        return semaErrExpr(
+            "cannot assign to a const-qualified lvalue",
+            opLoc
+        );
+    }
+
+    if (op == "=")
+    {
+        return semaSimpAssign(lhs, rhs, opLoc);
+    }
+    else
+    {
+        return semaCompAssign(op, lhs, rhs, opLoc);
+    }
+}
+
+private Expr semaSimpAssign(Expr lhs, Expr rhs, SrcLoc opLoc)
+{
+    if (isArithmetic(lhs.type) && isArithmetic(rhs.type))
+    {
+        rhs = opndConv(rhs, lhs.type);
+        return new AssignExpr(
+            lhs.type,
+            "=",
+            lhs,
+            rhs,
+            opLoc
+        );
+    }
+
+    else if (cast(RecType)lhs.type && cast(RecType)rhs.type)
+    {
+        if (cast(RecType)lhs.type != cast(RecType)rhs.type)
+        {
+            return semaErrExpr(
+                format!"incompatible assignment ('%s' and '%s')"(lhs.type, rhs.type),
+                opLoc
+            );
+        }
+
+        return new AssignExpr(
+            lhs.type,
+            "=",
+            lhs,
+            rhs,
+            opLoc
+        );
+    }
+
+    else if (cast(PtrType)lhs.type && cast(PtrType)rhs.type)
+    {
+        auto lptr = cast(PtrType)lhs.type;
+        auto rptr = cast(PtrType)rhs.type;
+
+        if (isNull(rhs) && lptr != rptr)
+        {
+            rhs = new IntExpr(
+                rptr,
+                0,
+                rhs.loc
+            );
+        }
+
+        if (
+            lptr != rptr && 
+            getPtrType(voidType) != lhs.type && 
+            getPtrType(voidType) != rhs.type)
+        {
+            report(
+                SVR_WARN,
+                format!"incompatible pointer types assigning to '%s' from '%s'"(lptr, rptr),
+                opLoc
+            );
+            rhs = opndConv(rhs, lptr);
+        }
+
+        return new AssignExpr(
+            lptr,
+            "=",
+            lhs,
+            rhs,
+            opLoc
+        );
+    }
+
+    else if (lhs.type == boolType && cast(PtrType)rhs.type)
+    {
+        rhs = opndConv(rhs, boolType);
+        return new AssignExpr(
+            boolType,
+            "=",
+            lhs,
+            rhs,
+            opLoc
+        );
+    }
+
+    else
+    {
+        return semaErrExpr(
+            format!"cannot assign to type '%s' from '%s'"(lhs.type, rhs.type),
+            opLoc
+        );
+    }
+}
+
+private Expr semaCompAssign(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
+{
+    assert(lhs && rhs);
+    return null;
 }
 
 /// Semantic action on conditional expressions.

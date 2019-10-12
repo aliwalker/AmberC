@@ -73,6 +73,12 @@ private bool isPrefixUOp(Token tok)
     return (isUop || (tok.kind == Token.KW && tok.stringVal == "sizeof"));
 }
 
+private bool isAssignOp(Token tok)
+{
+    auto assignops = ["=", "*=", "/=", "%=", "+=", "-=", "<<=", ">>=", "&=", "^=", "|="];
+    return any!((op) => compTokStr(tok, Token.SEP, op))(assignops);
+}
+
 private bool isQualifier(Token tok)
 {
     return any!((val) => compTokStr(tok, Token.KW, val))(tqualkw);
@@ -97,10 +103,24 @@ Expr parseExpr(ref TokenStream tokstr)
 }
 
 /// assignment
-///
+///     : conditional-expr
+///     | unary assignment-op assignment
 Expr parseAssignment(ref TokenStream tokstr)
 {
-    return parseCondExpr(tokstr);
+    auto expr = parseCondExpr(tokstr);
+
+    if (expr && tokstr.peek().isAssignOp())
+    {
+        auto optok = tokstr.read();
+        auto rhs = parseAssignment(tokstr);
+        if (!rhs)
+        {
+            return null;
+        }
+        expr = semaAssign(optok.stringVal, expr, rhs, SrcLoc(optok.pos, tokstr.filename));
+    }
+
+    return expr;
 }
 
 /// conditional-expr
