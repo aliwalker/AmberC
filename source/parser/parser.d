@@ -648,11 +648,6 @@ Expr parsePrimary(ref TokenStream tokstr)
 ///        ^
 Expr parseParen(ref TokenStream tokstr)
 {
-    assert(
-        (tokstr.peek.kind == Token.SEP) &&
-        (tokstr.peek.stringVal == "(")
-    );
-
     // Compound literal.
     if (tokstr.peek().isSpecifier() || tokstr.peek().isQualifier())
     {
@@ -1883,6 +1878,64 @@ unittest
 
     /// Incompatible sec & thrd opnds.
     testInvalid("0 ? \"fff\" : 12");
+
+    envPop();
+    uniEpilog();
+}
+
+/// test parseAssignment.
+unittest
+{
+    uniProlog();
+    void testValid(string code)
+    {
+        auto tokstr = TokenStream(code, "testParseAssignment.c");
+        auto expr = cast(AssignExpr)parseAssignment(tokstr);
+        
+        assert(tokstr.peek().kind == Token.EOF);
+        assert(expr);
+        dumpExpr(expr);
+    }
+
+    void testInvalid(string code)
+    {
+        auto tokstr = TokenStream(code, "testParseAssignment.c");
+        auto expr = cast(AssignExpr)parseAssignment(tokstr);
+
+        assert(!expr);
+    }
+
+    envPush();
+    envAddDecl("a", new VarDecl(
+        longType,
+        "a",
+        null,
+        SrcLoc()
+    ));
+    envAddDecl("b", new VarDecl(
+        getPtrType(doubleType),
+        "b",
+        null,
+        SrcLoc()
+    ));
+    envAddDecl("fooStruc", new VarDecl(
+        getRecType("Foo"),
+        "fooStruc",
+        null,
+        SrcLoc()
+    ));
+    envAddDecl("barStruc", new VarDecl(
+        getRecType("Bar"),
+        "barStruc",
+        null,
+        SrcLoc()
+    ));
+
+    testValid("a = 23");
+    testValid("a = 23.1");
+    testValid("b = &a");
+    testInvalid("fooStruc = barStruc");
+    testInvalid("22 = 22");
 
     envPop();
     uniEpilog();
