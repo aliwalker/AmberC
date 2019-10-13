@@ -18,12 +18,27 @@ debug import parser.ast_dumper;
 
 private T parseErrorImp(T)(ref TokenStream tokstr, string msg, SrcLoc loc)
 {
-    // TODO: error recovery on TokenStream.
     report(
         SVR_ERR,
         msg,
         loc
     );
+
+    // Skip until a KW or semicolon is met.
+    for (;;)
+    {
+        auto tok = tokstr.peek();
+        if (
+            (compTokStr(tok, Token.SEP, ";")) ||
+            (tok.kind == Token.KW)            ||
+            (tok.kind == Token.EOF)
+        )
+        {
+            break;
+        }
+
+        tokstr.read();
+    }
 
     return null;
 }
@@ -87,6 +102,22 @@ private bool isQualifier(Token tok)
 private bool isSpecifier(Token tok)
 {
     return any!((val) => compTokStr(tok, Token.KW, val))(tkw);
+}
+
+/// expr-stmt
+///     : expression? ";"
+Stmt parseExprStmt(ref TokenStream tokstr)
+{
+    auto loc = SrcLoc(tokstr.peek().pos, tokstr.filename);
+    if (tokstr.matchSep(";"))
+    {
+        return new ExprStmt(null, loc);
+    }
+
+    auto expr = parseExpr(tokstr);
+
+    expectSep(tokstr, ";");
+    return new ExprStmt(expr, loc);
 }
 
 /**
@@ -981,12 +1012,11 @@ Type parseSpecQualList(ref TokenStream tokstr)
     // Type specifiers.
     if (!tokstr.peek().isSpecifier())
     {
-        report(
-            SVR_ERR,
+        return parseTypeError(
+            tokstr,
             "expect type specifier",
             SrcLoc(tokstr.peek().pos, tokstr.filename)
         );
-        return null;
     }
     auto type = parseTypeSpecs(tokstr);
 
@@ -1077,7 +1107,7 @@ Type parseTypeSpecs(ref TokenStream tokstr)
 /// qualIntType
 ///     : qual qualIntType*
 ///     | ("char" | "short" | "int" | "long" | "long long") qualIntType*
-Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
+private Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
 {
     static assert(pref == "signed" || pref == "unsigned");
     static if (pref == "signed")
@@ -1118,7 +1148,7 @@ Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
     {
         case "char":
             resType = charTy;
-            goto POSTFIX_QUALS;
+            break;
 
         case "short":
             if (tokstr.peek().isQualifier())
@@ -1129,11 +1159,11 @@ Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
             // "signed short int". "int" is optional.
             tokstr.matchKW("int");
             resType = shortTy;
-            goto POSTFIX_QUALS;
+            break;
 
         case "int":
             resType = intTy;
-            goto POSTFIX_QUALS;
+            break;
         
         case "long":
             if (tokstr.peek().isQualifier())
@@ -1157,19 +1187,16 @@ Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
                 tokstr.matchKW("int");
                 resType = longTy;
             }
-            goto POSTFIX_QUALS;
+            break;
 
         default:
-            report(
-                SVR_ERR,
+            return parseTypeError(
+                tokstr,
                 format!"unexpected keyword '%s'"(tok),
                 SrcLoc(tok.pos, tokstr.filename)
             );
-
-            return null;
     }
-    
-POSTFIX_QUALS:
+
     return (quals == 0) ? resType : getQualType(resType, quals);
 }
 
@@ -1178,7 +1205,7 @@ POSTFIX_QUALS:
 ///                          ^
 /// struct-decl-list
 ///     : (spec-qual-list declarator ';')*
-Type parseRecTypeSpec(ref TokenStream tokstr, bool isUnion)
+private Type parseRecTypeSpec(ref TokenStream tokstr, bool isUnion)
 {
     auto isDef = false;
     auto tok = tokstr.read();
@@ -1200,13 +1227,11 @@ Type parseRecTypeSpec(ref TokenStream tokstr, bool isUnion)
         string tystr;
         if (getRecType(tokident.stringVal, tystr, isUnion).members)
         {
-            report(
-                SVR_ERR,
+            return parseTypeError(
+                tokstr,
                 format!"redeclaration of '%s'"(tokident.stringVal),
                 SrcLoc(tokident.pos, tokstr.filename),
             );
-            // TODO: synchronization.
-            return null;
         }
 
         isDef = true;
@@ -1991,7 +2016,9 @@ unittest
     ));
 
     testParseExpr!(CommaExpr)("1, 2 + 3");
+    testParseExpr!(CommaExpr)("\"string\", 2 + 3");
     testParseExpr!(BinExpr)("2 + 3 * integer");
+    testParseExpr!(CondExpr)("integer ? integer : integer + 1");
     testParseExpr!(IntExpr)("2 + 3 * 3");
     testParseExpr!(UnaryExpr)("&integer");
     testParseExpr!(AssignExpr)("intptr = &integer");
