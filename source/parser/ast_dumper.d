@@ -216,6 +216,18 @@ void dumpExpr(Expr node)
         indents--;
     }
 
+    else if (auto comexpr = cast(CommaExpr)node)
+    {
+        exprstr ~= format!"%sCommaExpr%s(%s)"(
+            COLOR_YEL,
+            COLOR_RES,
+            comexpr.type
+        );
+        indents++;
+        writeln(exprstr);
+        dumpExpr(comexpr.lists);
+        indents--;
+    }
     else
     {
         assert(false, "Non-Expr node");

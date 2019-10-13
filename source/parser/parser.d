@@ -96,10 +96,26 @@ Expressions.
 */
 
 /// expression
-///
+///     : assignment
+///     | expression "," assignment
 Expr parseExpr(ref TokenStream tokstr)
 {
-    return parseAssignment(tokstr);
+    auto exprs = [parseAssignment(tokstr)];
+    auto opLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
+
+    while (exprs[0] && tokstr.matchSep(","))
+    {
+        if (auto expr = parseAssignment(tokstr))
+        {
+            exprs ~= expr;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    return semaCommaExpr(exprs, opLoc);
 }
 
 /// assignment
@@ -1942,5 +1958,43 @@ unittest
     testInvalid("b += b");
 
     envPop();
+    uniEpilog();
+}
+
+/// test parseExpr.
+unittest
+{
+    uniProlog();
+    T testParseExpr(T)(string code)
+        if (is(T : Expr))
+    {
+        auto tokstr = TokenStream(code, "testParseExpr.c");
+        auto expr = cast(T)parseExpr(tokstr);
+        assert(expr);
+        writefln("src: \"%s\"", code);
+        dumpExpr(expr);
+        return expr;
+    }
+
+    envPush();
+    envAddDecl("integer", new VarDecl(
+        intType,
+        "integer",
+        null,
+        SrcLoc()
+    ));
+    envAddDecl("intptr", new VarDecl(
+        getPtrType(longType),
+        "intptr",
+        null,
+        SrcLoc()
+    ));
+
+    testParseExpr!(CommaExpr)("1, 2 + 3");
+    testParseExpr!(BinExpr)("2 + 3 * integer");
+    testParseExpr!(IntExpr)("2 + 3 * 3");
+    testParseExpr!(UnaryExpr)("&integer");
+    testParseExpr!(AssignExpr)("intptr = &integer");
+
     uniEpilog();
 }

@@ -405,6 +405,23 @@ class CompLitExpr : Expr
     }
 }
 
+
+/// Represents a comma separated expression.
+class CommaExpr : Expr
+{
+    /// The list of expr.
+    Expr[] lists;
+
+    /// Constructor.
+    this(Type type, Expr[] lists, SrcLoc loc)
+    {
+        assert(type);
+        super(type, loc);
+
+        this.lists = lists;
+    }
+}
+
 /*
 * Statements.
 */

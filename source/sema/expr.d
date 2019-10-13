@@ -117,9 +117,10 @@ private Type arithCommType(Type a, Type b)
 /// otherwise the result wil be a UnaryExpr of CAST kind.
 private Expr opndConv(Expr opnd, Type commType)
 {
-    assert((isArithmetic(opnd.type) && isArithmetic(commType)) ||
-        ((cast(PtrType)opnd.type) && (cast(PtrType)commType)),
-        "Only arithmetics and ptrs are allowed for conversions");
+    assert(opnd && commType);
+    // assert((isArithmetic(opnd.type) && isArithmetic(commType)) ||
+    //     ((cast(PtrType)opnd.type) && (cast(PtrType)commType)),
+    //     "Only arithmetics and ptrs are allowed for conversions");
 
     if (opnd.type == commType)
     {
@@ -193,6 +194,33 @@ private Expr ptrConv(Expr ptr, Expr other)
 
     // TODO: Handle arithmetic pointer conversions.
     return ptr;
+}
+
+/// Semantic action on comma expressions.
+Expr semaCommaExpr(Expr[] exprs, SrcLoc opLoc)
+{
+    assert(exprs && exprs.length >= 1);
+
+    /// Not a comma expression.
+    if (exprs.length == 1)
+    {
+        return exprs[0];
+    }
+    
+    // Left-operands are evaluated as a void expression.
+    Expr[] voided = [];
+    foreach (i, expr; exprs)
+    {
+        voided ~= (i == exprs.length - 1)
+            ? expr
+            : opndConv(expr, voidType);
+    }
+
+    return new CommaExpr(
+        exprs[$ - 1].type,
+        voided,
+        opLoc
+    );
 }
 
 /// Evaluate at compile time.
