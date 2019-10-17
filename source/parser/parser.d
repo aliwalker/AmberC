@@ -1091,8 +1091,8 @@ Type parseTypeSpecs(ref TokenStream tokstr)
         case "float":       return floatType;
         case "double":      return doubleType;
         case "void":        return voidType;
-        case "struct":      return parseRecTypeSpec(tokstr, false);
-        case "union":       return parseRecTypeSpec(tokstr, true);
+        case "struct":      return parseStructTypeSpec(tokstr, false);
+        case "union":       return parseStructTypeSpec(tokstr, true);
         
         default:
             assert(false);
@@ -1200,12 +1200,10 @@ private Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
     return (quals == 0) ? resType : getQualType(resType, quals);
 }
 
-/// recTypeSpec
-///     : ("struct" | "union") (name)? ('{' struct-decl-list '}')?
-///                          ^
-/// struct-decl-list
-///     : (spec-qual-list declarator ';')*
-private Type parseRecTypeSpec(ref TokenStream tokstr, bool isUnion)
+/// struct-or-union-type-specifier
+///     : ("struct" | "union") (identifier)? ('{' struct-decl-list '}')?
+///                            ^
+private Type parseStructTypeSpec(ref TokenStream tokstr, bool isUnion)
 {
     auto isDef = false;
     auto tok = tokstr.read();
