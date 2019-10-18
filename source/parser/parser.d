@@ -104,6 +104,11 @@ private bool isSpecifier(Token tok)
     return any!((val) => compTokStr(tok, Token.KW, val))(tkw);
 }
 
+private bool isStorageClassSpecifier(Token tok)
+{
+    return any!((val) => compTokStr(tok, Token.KW, val))(sckw);
+}
+
 /// expr-stmt
 ///     : expression? ";"
 Stmt parseExprStmt(ref TokenStream tokstr)
@@ -926,7 +931,7 @@ Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
     // Add an EOF token.
     skippedToks ~= Token(tokstr.peek().pos);
 
-    // These tokens are to parsed by [parseAbsDecltr].
+    // These tokens are to be parsed by [parseAbsDecltr].
     auto skippedTokstr = TokenStream(skippedToks, tokstr.filename);
     
     // Function.
@@ -1052,6 +1057,16 @@ uint8_t parseTypeQuals(ref TokenStream tokstr)
 
     tokstr.unread();
     return quals;
+}
+
+/// NOTE: storage-class/function specifiers are handled separately.
+///
+/// declaration-specifiers
+///     | type-specifier declaration-specifiers?
+///     | type-qualifier declaration-specifiers?
+Type parseDeclSpecs(ref TokenStream tokstr)
+{
+    return parseSpecQualList(tokstr);
 }
 
 /// type-specifiers
