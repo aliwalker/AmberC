@@ -608,8 +608,9 @@ class PtrType : Type
         auto arrayType = cast(ArrayType)base;
         if (arrayType)
         {
-            return format!"%s(*)[%s]"(
+            return format!"%s(*%s)[%s]"(
                 arrayType.elemTy,
+                qualString(),
                 arrayType.size
             );
         }
@@ -617,6 +618,12 @@ class PtrType : Type
         return base.toString() ~ "*" ~ qualString();
     }
 }
+
+/// Enumeration type.
+// class EnumType : Type
+// {
+    
+// }
 
 /// Primitive types
 __gshared Type voidType   = new Type(Type.VOID);
@@ -638,6 +645,9 @@ __gshared Type doubleType = new Type(Type.DOUBLE);
 /// Derived type store.
 private Type[string] dvtypes;
 
+/// Qualified type store.
+private Type[string] qtypes;
+
 static this()
 {
     // Create basic pointer types.
@@ -657,6 +667,10 @@ static this()
     getPtrType(doubleType);
 }
 
+/// TODO: rename this to getDerivedUnqual.
+/// If the type represented by [tystr] is in the derived type
+/// store, return it. Otherwise call [ctor] to create the type
+/// represented by [tystr].
 private T getType(T)(string tystr, T delegate() ctor)
 {
     debug import std.stdio : writefln;
@@ -667,7 +681,7 @@ private T getType(T)(string tystr, T delegate() ctor)
         assert(ty !is null);
 
         debug writefln(
-            "Get \"%s: %s\"", 
+            "Get %s: \"%s\"", 
             T.stringof, 
             ty,
             tystr
@@ -677,6 +691,7 @@ private T getType(T)(string tystr, T delegate() ctor)
 
     auto ty = ctor();
     dvtypes[tystr] = ty;
+    assert(ty.toString() == tystr);
 
     debug writefln(
         "Added \"%s: %s\"", 
@@ -693,6 +708,7 @@ void removeType(string tystr)
     dvtypes.remove(tystr);
 }
 
+/// This is simply a meaningless placeholder.
 private string __preRecTypeStr;
 
 /// [name] is the tag optional identifier in struct declaration.
@@ -702,16 +718,14 @@ private string __preRecTypeStr;
 RecType getRecType(
     string name, 
     out string tystr = __preRecTypeStr, 
-    bool isUnion = false,
-    uint8_t qual = 0)
+    bool isUnion = false)
 {
     if (name == "")
     {
         name = format!"anon%s"(RecType.anonId++);
     }
 
-    tystr = new RecType(name, null, isUnion, qual).toString();
-
+    tystr = new RecType(name, null, isUnion).toString();
     return getType!(RecType)(
         tystr,
         { return new RecType(name, null, isUnion); });
@@ -722,10 +736,9 @@ RecType getRecType(
     string name,
     RecField[] fields, 
     out string tystr = __preRecTypeStr,
-    bool isUnion = false,
-    uint8_t qual = 0)
+    bool isUnion = false)
 {
-    auto ty = getRecType(name, tystr, isUnion, qual);
+    auto ty = getRecType(name, tystr, isUnion);
 
     // Already complete or cannot be completed.
     if ((ty.members !is null) || (!fields))
@@ -743,9 +756,9 @@ RecType getRecType(
 }
 
 /// Get or create an array type.
-ArrayType getArrayType(Type elemTy, size_t size, uint8_t qual = 0)
+ArrayType getArrayType(Type elemTy, size_t size)
 {
-    auto astr = new ArrayType(elemTy, size, qual).toString();
+    auto astr = new ArrayType(elemTy, size).toString();
     
     return getType!(ArrayType)(
         astr,
@@ -763,48 +776,50 @@ FuncType getFuncType(Type retType, Type[] params)
 }
 
 /// Get or create a pointer type.
-PtrType getPtrType(Type base, uint8_t qual = 0)
+PtrType getPtrType(Type base)
 {
-    auto ptrstr = new PtrType(base, qual).toString();
+    auto ptrstr = new PtrType(base).toString();
 
     return getType!(PtrType)(
         ptrstr, 
-        { return new PtrType(base, qual); });
+        { return new PtrType(base); });
 }
 
 /// Get qualified type of 'type'.
 Type getQualType(Type type, uint8_t qual)
 {
+    Type resType;
     auto recType = cast(RecType)type;
     if (recType)
     {
-        return getRecType(recType.name, __preRecTypeStr, recType.isUnion, qual);
+        resType = new RecType(recType.name, recType.members, recType.isUnion, qual);
     }
 
     auto arrayType = cast(ArrayType)type;
     if (arrayType)
     {
-        return getArrayType(arrayType.elemTy, arrayType.size, qual);
-    }
-
-    auto funcType = cast(FuncType)type;
-    if (funcType)
-    {
-        return getFuncType(funcType.retType, funcType.params);
+        resType = new ArrayType(arrayType.elemTy, arrayType.size, qual);
     }
 
     auto ptrType = cast(PtrType)type;
     if (ptrType)
     {
-        return getPtrType(ptrType.base, qual);
+        resType = new PtrType(ptrType.base, qual);
     }
 
-    // TODO: qualified types are not derived types.
-    auto tystr = new Type(type.kind, qual).toString();
-    return getType!(Type)(
-        tystr,
-        { return new Type(type.kind, qual); }
-    );
+    if (resType !is null)
+    {
+        resType = new Type(type.kind, qual);
+    }
+
+    auto tystr = resType.toString();
+    if (qtypes[tystr])
+    {
+        return qtypes[tystr];
+    }
+
+    qtypes[tystr] = resType;
+    return resType;
 }
 
 /// Helper for iterating record fields.
