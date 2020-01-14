@@ -678,7 +678,7 @@ static this()
 /// If the type represented by [tystr] is in the derived type
 /// store, return it. Otherwise call [ctor] to create the type
 /// represented by [tystr].
-private T getType(T)(string tystr, T delegate() ctor)
+private T getDerivedType(T)(string tystr, T delegate() ctor)
 {
     debug import std.stdio : writefln;
 
@@ -733,7 +733,7 @@ RecType getRecType(
     }
 
     tystr = new RecType(name, null, isUnion).toString();
-    return getType!(RecType)(
+    return getDerivedType!(RecType)(
         tystr,
         { return new RecType(name, null, isUnion); });
 }
@@ -756,7 +756,7 @@ RecType getRecType(
     else
     {
         dvtypes.remove(tystr);
-        return getType!(RecType)(
+        return getDerivedType!(RecType)(
             tystr,
             { return (isUnion ? makeUnionType(name, fields) : makeStrucType(name, fields)); });
     }
@@ -767,7 +767,7 @@ ArrayType getArrayType(const Type elemTy, size_t size)
 {
     auto astr = new ArrayType(elemTy, size).toString();
     
-    return getType!(ArrayType)(
+    return getDerivedType!(ArrayType)(
         astr,
         { return new ArrayType(elemTy, size); });
 }
@@ -777,7 +777,7 @@ FuncType getFuncType(const Type retType, const Type[] params)
 {
     auto fstr = new FuncType(retType, params).toString();
     
-    return getType!(FuncType)(
+    return getDerivedType!(FuncType)(
         fstr, 
         { return new FuncType(retType, params); });
 }
@@ -787,7 +787,7 @@ PtrType getPtrType(const Type base)
 {
     auto ptrstr = new PtrType(base).toString();
 
-    return getType!(PtrType)(
+    return getDerivedType!(PtrType)(
         ptrstr, 
         { return new PtrType(base); });
 }
