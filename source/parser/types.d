@@ -421,13 +421,13 @@ alias RecField = RecType.Field;
 class FuncType : Type
 {
     /// Return type.
-    Type retType;
+    const Type retType;
 
     /// Param types.
-    Type[] params;
+    const Type[] params;
 
     /// Constructor.
-    private this(Type retType, Type[] params)
+    private this(const Type retType, const Type[] params)
     {
         super(DERV, 0);
 
@@ -502,13 +502,13 @@ class FuncType : Type
 class ArrayType : Type
 {
     /// Type of the element.
-    Type elemTy;
+    const Type elemTy;
 
     /// Size of the array.
     size_t size;
 
     /// Constructor.
-    private this(Type elemTy, size_t size, uint8_t qual = 0)
+    private this(const Type elemTy, size_t size, uint8_t qual = 0)
     {
         super(DERV, qual);
 
@@ -565,10 +565,10 @@ class ArrayType : Type
 class PtrType : Type
 {
     /// Pointee type.
-    Type base;
+    const Type base;
 
     /// Constructor.
-    private this(Type base, uint8_t qual = 0)
+    private this(const Type base, uint8_t qual = 0)
     {
         super(DERV, qual);
 
@@ -763,7 +763,7 @@ RecType getRecType(
 }
 
 /// Get or create an array type.
-ArrayType getArrayType(Type elemTy, size_t size)
+ArrayType getArrayType(const Type elemTy, size_t size)
 {
     auto astr = new ArrayType(elemTy, size).toString();
     
@@ -773,7 +773,7 @@ ArrayType getArrayType(Type elemTy, size_t size)
 }
 
 /// Get or create a function type.
-FuncType getFuncType(Type retType, Type[] params)
+FuncType getFuncType(const Type retType, const Type[] params)
 {
     auto fstr = new FuncType(retType, params).toString();
     
@@ -783,7 +783,7 @@ FuncType getFuncType(Type retType, Type[] params)
 }
 
 /// Get or create a pointer type.
-PtrType getPtrType(Type base)
+PtrType getPtrType(const Type base)
 {
     auto ptrstr = new PtrType(base).toString();
 
@@ -793,7 +793,7 @@ PtrType getPtrType(Type base)
 }
 
 /// Get qualified type of 'type'.
-Type getQualType(Type type, uint8_t qual)
+Type getQualType(const Type type, uint8_t qual)
 {
     Type resType;
     auto recType = cast(RecType)type;
@@ -1065,5 +1065,17 @@ unittest
 
     const intConstPtrTy = intType.getPtrType().getQualType(QUAL_CONST);
     assert(intConstPtrTy.toString == "int*const");
+
+    auto fooStrucTy = getRecType(
+        "fooStruc", 
+        [
+            RecField(intType, "foo"),
+            RecField(longType, "bar")
+        ]);
+    auto constFooStrucTy = fooStrucTy.getQualType(QUAL_CONST);
+    assert(constFooStrucTy.toString == "const struct fooStruc");
+
+    const constFooStrucTyPtr = constFooStrucTy.getPtrType();
+    assert(constFooStrucTyPtr.toString == "const struct fooStruc*");
     uniEpilog();
 }
