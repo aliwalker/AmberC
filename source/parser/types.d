@@ -3,6 +3,7 @@
 
 module parser.types;
 
+import std.range;
 import std.stdio;
 import std.stdint;
 import std.array;
@@ -128,29 +129,33 @@ class Type
         if (quals.empty)
             return "";
 
-        return quals.join(" ") ~ " ";
+        return quals.join(" ");
     }
 
     override string toString() const
     {
+        string result;
+        if (!qualString().empty())
+            result ~= qualString() ~ " ";
+
         switch (kind)
         {
-            case VOID:      return qualString() ~ "void";
-            case BOOL_:     return qualString() ~ "Bool_";
-            case CHAR:      return qualString() ~ "char";
-            case SCHAR:     return qualString() ~ "signed char";
-            case SHORT:     return qualString() ~ "short";
-            case INT:       return qualString() ~ "int";
-            case LONG:      return qualString() ~ "long";
-            case LLONG:     return qualString() ~ "long long";
-            case FLOAT:     return qualString() ~ "float";
-            case UCHAR:     return qualString() ~ "unsigned char";
-            case USHORT:    return qualString() ~ "unsigned short";
-            case UINT:      return qualString() ~ "unsigned";
-            case ULONG:     return qualString() ~ "unsigned long";
-            case ULLONG:    return qualString() ~ "unsigned long long";
-            case DOUBLE:    return qualString() ~ "double";
-            case DERV:      return qualString() ~ "derived";
+            case VOID:      return result ~= "void";
+            case BOOL_:     return result ~= "Bool_";
+            case CHAR:      return result ~= "char";
+            case SCHAR:     return result ~= "signed char";
+            case SHORT:     return result ~= "short";
+            case INT:       return result ~= "int";
+            case LONG:      return result ~= "long";
+            case LLONG:     return result ~= "long long";
+            case FLOAT:     return result ~= "float";
+            case UCHAR:     return result ~= "unsigned char";
+            case USHORT:    return result ~= "unsigned short";
+            case UINT:      return result ~= "unsigned";
+            case ULONG:     return result ~= "unsigned long";
+            case ULLONG:    return result ~= "unsigned long long";
+            case DOUBLE:    return result ~= "double";
+            case DERV:      return result ~= "derived";
             default:
                 return "";
         }
@@ -403,7 +408,9 @@ class RecType : Type
 
     override string toString() const
     {
-        return qualString() ~ (isUnion ? "union " : "struct ") ~ name;
+        if (!qualString().empty())
+            return qualString() ~ (isUnion ? " union " : " struct ") ~ name;
+        return (isUnion ? "union " : "struct ") ~ name;
     }
 }
 
@@ -807,17 +814,18 @@ Type getQualType(Type type, uint8_t qual)
         resType = new PtrType(ptrType.base, qual);
     }
 
-    if (resType !is null)
+    if (resType is null)
     {
         resType = new Type(type.kind, qual);
     }
 
     auto tystr = resType.toString();
-    if (qtypes[tystr])
+    if (tystr in qtypes)
     {
         return qtypes[tystr];
     }
 
+    debug writefln("Added qual type: \"%s\"", resType);
     qtypes[tystr] = resType;
     return resType;
 }
@@ -1045,5 +1053,17 @@ unittest
     assert(fooStrucMems[0].name == "foo");
     assert(fooStrucMems[1].type == longType);
     assert(fooStrucMems[1].name == "bar");
+    uniEpilog();
+}
+
+/// Test qual.
+unittest
+{
+    uniProlog();
+    const constIntPtrTy = getQualType(intType, QUAL_CONST).getPtrType();
+    assert(constIntPtrTy.toString == "const int*");
+
+    const intConstPtrTy = intType.getPtrType().getQualType(QUAL_CONST);
+    assert(intConstPtrTy.toString == "int*const");
     uniEpilog();
 }
