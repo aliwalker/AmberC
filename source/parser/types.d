@@ -41,7 +41,7 @@ class Type
         ULLONG,
         FLOAT,
         DOUBLE,
-        // ENUM,
+        ENUM,
         /// Derived types:
         /// array, record, function, ptr.
         DERV,
@@ -70,7 +70,7 @@ class Type
             kind == ULLONG  ||
             kind == FLOAT   ||
             kind == DOUBLE  ||
-            // kind == ENUM    ||
+            kind == ENUM    ||
             kind == DERV
         );
         this.kind = kind;
@@ -626,12 +626,6 @@ class PtrType : Type
     }
 }
 
-/// Enumeration type.
-// class EnumType : Type
-// {
-    
-// }
-
 /// Primitive types
 __gshared Type voidType   = new Type(Type.VOID);
 __gshared Type boolType   = new Type(Type.BOOL_);
@@ -654,6 +648,9 @@ private Type[string] dvtypes;
 
 /// Qualified type store.
 private Type[string] qtypes;
+
+/// Enumerations.
+private Type[string] entypes;
 
 static this()
 {
@@ -828,6 +825,17 @@ Type getQualType(const Type type, uint8_t qual)
     debug writefln("Added qual type: \"%s\"", resType);
     qtypes[tystr] = resType;
     return resType;
+}
+
+/// Get or create an enum type with [name].
+Type getEnumType(string name)
+{
+    if (name !in entypes)
+    {
+        entypes[name] = new Type(Type.ENUM, 0);
+    }
+
+    return entypes[name];
 }
 
 /// Helper for iterating record fields.
@@ -1077,5 +1085,8 @@ unittest
 
     const constFooStrucTyPtr = constFooStrucTy.getPtrType();
     assert(constFooStrucTyPtr.toString == "const struct fooStruc*");
+
+    const intPtrConstPtr = intType.getPtrType().getQualType(QUAL_CONST).getPtrType();
+    assert(intPtrConstPtr.toString == "int*const*");
     uniEpilog();
 }
