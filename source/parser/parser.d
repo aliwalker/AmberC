@@ -741,6 +741,104 @@ Type parseTypeName(ref TokenStream tokstr)
     }
 }
 
+/// specifier-qualifier-list
+///     : type-specifier specifier-qualifier-list
+///     | type-qualifier specifier-qualifier-list
+Type parseSpecQualList(ref TokenStream tokstr)
+{
+    // Consume any prefix qulifiers.
+    uint8_t quals = parseQuals(tokstr);
+
+    // Type specifiers.
+    if (!tokstr.peek().isSpecifier())
+    {
+        return parseTypeError(
+            tokstr,
+            "expect type specifier",
+            SrcLoc(tokstr.peek().pos, tokstr.filename)
+        );
+    }
+    auto type = parseTypeSpecs(tokstr);
+
+    // Consume any postfix qualifiers.
+    quals |= parseQuals(tokstr);
+
+    return (quals == 0) ? type : getQualType(type, quals);
+}
+
+/// type-specifiers
+///     : basic-type-specifiers
+///     | aggregType-specifiers
+///     | enum-specifiers   - TODO.
+///     | typedef-name      - TODO.
+Type parseTypeSpecs(ref TokenStream tokstr)
+{
+    auto tokspec = tokstr.read();
+    assert(isSpecifier(tokspec));
+
+    switch (tokspec.stringVal)
+    {
+        case "_Bool":       return boolType;
+        case "char":        return charType;
+        case "short":
+            tokstr.matchKW("int");
+            return shortType;
+
+        case "int":         return intType;
+        case "signed":      return parseIntTypeSpec!"signed"(tokstr);
+        case "unsigned":    return parseIntTypeSpec!"unsigned"(tokstr);
+        case "long":
+            // long long (int)
+            if (tokstr.matchKW("long"))
+            {
+                tokstr.matchKW("int");
+                return llongType;
+            }
+            // long (int)
+            else
+            {
+                return longType;
+            }
+
+        case "float":       return floatType;
+        case "double":      return doubleType;
+        case "void":        return voidType;
+        case "struct":      return parseStructTypeSpec(tokstr, false);
+        case "union":       return parseStructTypeSpec(tokstr, true);
+        
+        default:
+            assert(false);
+    }
+}
+
+/// type-qualifiers
+///     : "const" type-qualifiers*
+///     | "register" type-qualifiers*
+uint8_t parseQuals(ref TokenStream tokstr)
+{
+    uint8_t quals = 0;
+    auto tok = tokstr.read();
+
+    while (isQualifier(tok))
+    {
+        switch (tok.stringVal)
+        {
+            case "const":    quals |= QUAL_CONST; break;
+            case "register": quals |= QUAL_REG; break;
+            default:
+                report(
+                    SVR_WARN,
+                    format!"qualifier '%s' is not implemented"(tok.stringVal),
+                    SrcLoc(tok.pos, tokstr.filename),
+                );
+        }
+        tok = tokstr.read();
+    }
+
+    tokstr.unread();
+    return quals;
+}
+
 /// NOTE: we're currently parsing limited abstract declarators.
 /// We can only parse something like:
 ///
@@ -1006,59 +1104,6 @@ Type parsePtr(ref TokenStream tokstr, Type type)
     return type;
 }
 
-/// specifier-qualifier-list
-///     : type-specifier specifier-qualifier-list
-///     | type-qualifier specifier-qualifier-list
-Type parseSpecQualList(ref TokenStream tokstr)
-{
-    // Consume any prefix qulifiers.
-    uint8_t quals = parseQuals(tokstr);
-
-    // Type specifiers.
-    if (!tokstr.peek().isSpecifier())
-    {
-        return parseTypeError(
-            tokstr,
-            "expect type specifier",
-            SrcLoc(tokstr.peek().pos, tokstr.filename)
-        );
-    }
-    auto type = parseTypeSpecs(tokstr);
-
-    // Consume any postfix qualifiers.
-    quals |= parseQuals(tokstr);
-
-    return (quals == 0) ? type : getQualType(type, quals);
-}
-
-/// type-qualifiers
-///     : "const" type-qualifiers*
-///     | "register" type-qualifiers*
-uint8_t parseQuals(ref TokenStream tokstr)
-{
-    uint8_t quals = 0;
-    auto tok = tokstr.read();
-
-    while (isQualifier(tok))
-    {
-        switch (tok.stringVal)
-        {
-            case "const":    quals |= QUAL_CONST; break;
-            case "register": quals |= QUAL_REG; break;
-            default:
-                report(
-                    SVR_WARN,
-                    format!"qualifier '%s' is not implemented"(tok.stringVal),
-                    SrcLoc(tok.pos, tokstr.filename),
-                );
-        }
-        tok = tokstr.read();
-    }
-
-    tokstr.unread();
-    return quals;
-}
-
 /// NOTE: storage-class/function specifiers are handled separately.
 ///
 /// declaration-specifiers
@@ -1067,51 +1112,6 @@ uint8_t parseQuals(ref TokenStream tokstr)
 Type parseDeclSpecs(ref TokenStream tokstr)
 {
     return parseSpecQualList(tokstr);
-}
-
-/// type-specifiers
-///     : basic-type-specifiers
-///     | aggregType-specifiers
-///     | enum-specifiers   - TODO.
-///     | typedef-name      - TODO.
-Type parseTypeSpecs(ref TokenStream tokstr)
-{
-    auto tokspec = tokstr.read();
-    assert(isSpecifier(tokspec));
-
-    switch (tokspec.stringVal)
-    {
-        case "_Bool":       return boolType;
-        case "char":        return charType;
-        case "short":
-            tokstr.matchKW("int");
-            return shortType;
-
-        case "int":         return intType;
-        case "signed":      return parseIntTypeSpec!"signed"(tokstr);
-        case "unsigned":    return parseIntTypeSpec!"unsigned"(tokstr);
-        case "long":
-            // long long (int)
-            if (tokstr.matchKW("long"))
-            {
-                tokstr.matchKW("int");
-                return llongType;
-            }
-            // long (int)
-            else
-            {
-                return longType;
-            }
-
-        case "float":       return floatType;
-        case "double":      return doubleType;
-        case "void":        return voidType;
-        case "struct":      return parseStructTypeSpec(tokstr, false);
-        case "union":       return parseStructTypeSpec(tokstr, true);
-        
-        default:
-            assert(false);
-    }
 }
 
 /// intTypeSpec
