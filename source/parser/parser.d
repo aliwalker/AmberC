@@ -1000,7 +1000,7 @@ Type parsePtr(ref TokenStream tokstr, Type type)
     while (tokstr.matchSep("*"))
     {
         uint8_t quals = parseTypeQuals(tokstr);
-        type = getPtrType(type, quals);
+        type = getPtrType(type).getQualType(quals);
     }
 
     return type;
@@ -1562,7 +1562,7 @@ unittest
     // Basic type ptr.
     testPtr("int*", "int*");
 
-    testPtr("int *const", "int*const "/* The tailing whitespace exists. */);
+    testPtr("int *const", "int*const"/* The tailing whitespace exists. */);
 
     // Simple func ptr.
     testPtr("int(*)()", "int(*)()");
@@ -1577,7 +1577,7 @@ unittest
     testPtr("struct BBB*", "struct BBB*");
 
     // Test funcPtr array.
-    testArray("int(*const [2])()", "int(*const [2])()");
+    testArray("int(*const [2])()", "int(*const[2])()");
     uniEpilog();
 }
 

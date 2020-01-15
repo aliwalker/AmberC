@@ -71,7 +71,7 @@ private bool litExpr(Expr expr)
 
 /// p 6.3.1.8
 /// Common real type for an arithmetic results.
-private Type arithCommType(Type a, Type b)
+private const(Type) arithCommType(const Type a, const Type b)
 {
     assert(isArithmetic(a) && isArithmetic(b));
 
@@ -91,8 +91,8 @@ private Type arithCommType(Type a, Type b)
         return a;
     }
 
-    Type wider = (intRank(a) > intRank(b) ? a : b);
-    Type narrower = (intRank(a) > intRank(b) ? b : a);
+    const Type wider = (intRank(a) > intRank(b) ? a : b);
+    const Type narrower = (intRank(a) > intRank(b) ? b : a);
 
     // Pick the one with greater length.
     if ((isSigned(a) && isSigned(b))     ||
@@ -115,7 +115,7 @@ private Type arithCommType(Type a, Type b)
 /// This helper exists mainly for handling both literals and non-literals.
 /// For literals, the result will be a new IntExpr or FloatExpr;
 /// otherwise the result wil be a UnaryExpr of CAST kind.
-private Expr opndConv(Expr opnd, Type commType)
+private Expr opndConv(Expr opnd, const Type commType)
 {
     assert(opnd && commType);
     // assert((isArithmetic(opnd.type) && isArithmetic(commType)) ||
@@ -188,8 +188,25 @@ private Expr ptrConv(Expr ptr, Expr other)
         other.type != getPtrType(voidType)
     )
     {
-        // FIXME: this could be problematic.
-        ptr.type = other.type;
+        // Integer literal of void* type.
+        if (auto intexpr = cast(IntExpr)ptr)
+        {
+            return new IntExpr(other.type, intexpr.value, intexpr.loc);
+        }
+
+        // FP literal of void* type.
+        if (auto fexpr = cast(FloatExpr)ptr)
+        {
+            return new FloatExpr(other.type, fexpr.value, fexpr.loc);
+        }
+
+        // Implicit cast.
+        ptr = new UnaryExpr(
+            UnaryExpr.CAST,
+            other.type,
+            ptr,
+            ptr.loc
+        );
     }
 
     // TODO: Handle arithmetic pointer conversions.
@@ -526,7 +543,7 @@ Expr semaCondExpr(Expr cond, Expr fst, Expr sec, SrcLoc opLoc)
 }
 
 /// Evaluate binary expressions.
-private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, Type commType)
+private Expr semaEvalBinop(string op, Expr lhs, Expr rhs, const Type commType)
 {
     assert(litExpr(lhs) && litExpr(rhs));
 
@@ -886,7 +903,7 @@ Expr semaMult(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
     assert(lhs && rhs);
 
     /// Ensure both operands are of arithmetic type.
-    bool ensureOpnd(Expr opnd, bool function(Type) pred)
+    bool ensureOpnd(Expr opnd, bool function(const Type) pred)
     {
         if (!pred(opnd.type))
         {
@@ -935,7 +952,7 @@ Expr semaMult(string op, Expr lhs, Expr rhs, SrcLoc opLoc)
 }
 
 // Convert [lit] expression to a literal of [type].
-private Expr litConv(Type type, Expr lit, SrcLoc parenLoc)
+private Expr litConv(const Type type, Expr lit, SrcLoc parenLoc)
 {
     assert(litExpr(lit) && isScalar(type));
 
@@ -978,17 +995,17 @@ private Expr litConv(Type type, Expr lit, SrcLoc parenLoc)
 }
 
 /// Semantic action on cast expressions.
-Expr semaCast(Type type, Expr opnd, SrcLoc parenLoc)
+Expr semaCast(const Type type, Expr opnd, SrcLoc parenLoc)
 {
     assert(type && opnd);
 
     Type errType;
     SrcLoc errLoc;
 
-    bool nonScalar(SrcLoc loc, Type type)
+    bool nonScalar(SrcLoc loc, const Type type)
     {
         errLoc = loc;
-        errType = type;
+        errType = cast(Type)type;
         
         return !isScalar(type);
     }
@@ -1033,7 +1050,7 @@ NON_SCALAR_ERR:
     );
 }
 
-private Expr semaEvalUAOp(Type type, string op, Expr opnd, SrcLoc opLoc)
+private Expr semaEvalUAOp(const Type type, string op, Expr opnd, SrcLoc opLoc)
 {
     assert(litExpr(opnd));
     auto intexpr = cast(IntExpr)opnd;
@@ -1096,7 +1113,7 @@ Expr semaUAOp(string op, Expr opnd, SrcLoc oploc)
         else
         {
             kind = (op == "+") ? UnaryExpr.PLUS : UnaryExpr.MINUS;
-            resType = opnd.type;
+            resType = cast(Type)opnd.type;
             goto DONE;
         }
 
@@ -1108,7 +1125,7 @@ Expr semaUAOp(string op, Expr opnd, SrcLoc oploc)
         else
         {
             kind = UnaryExpr.BIT_NOT;
-            resType = opnd.type;
+            resType = cast(Type)opnd.type;
             goto DONE;
         }
 
@@ -1285,10 +1302,10 @@ UnaryExpr semaDeref(Expr base, Expr idx = null)
     // When base is of ArrayType, decay array to pointer.
     if (arrayType)
     {
-        elemTy = arrayType.elemTy;
+        elemTy = cast(Type)arrayType.elemTy;
         base = new UnaryExpr(
             UnaryExpr.DECAY, 
-            getPtrType(arrayType.elemTy), 
+            arrayType.elemTy.getPtrType(),
             base, 
             base.loc);
     }
@@ -1297,8 +1314,7 @@ UnaryExpr semaDeref(Expr base, Expr idx = null)
     // the pointee type.
     else if (ptrType)
     {
-        elemTy = ptrType.base;
-        elemTy.qual = ptrType.qual;
+        elemTy = cast(Type)ptrType.base;
     }
 
     else

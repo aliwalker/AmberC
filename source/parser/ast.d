@@ -40,10 +40,10 @@ class Node
 class Expr : Node
 {
     /// Type of the expression.
-    Type type;
+    const Type type;
     
     /// Constructor.
-    this(Type type, SrcLoc loc)
+    this(const Type type, SrcLoc loc)
     {
         super(loc);
         this.type = type;
@@ -57,7 +57,7 @@ class IntExpr : Expr
     long value;
 
     /// Integer.
-    this(Type type, long val, SrcLoc loc)
+    this(const Type type, long val, SrcLoc loc)
     {
         assert(
             type == shortType   ||
@@ -83,7 +83,7 @@ class FloatExpr : Expr
     double value;
 
     /// Constructor.
-    this(Type type, double val, SrcLoc loc)
+    this(const Type type, double val, SrcLoc loc)
     {
         assert(type == floatType || type == doubleType);
 
@@ -102,7 +102,7 @@ class StringExpr : Expr
     this(string val, SrcLoc loc)
     {
         // String literal is const char*
-        super(getPtrType(charType).getQualType(QUAL_CONST), loc);
+        super(charType.getPtrType().getQualType(QUAL_CONST), loc);
         this.value = val;
     }
 }
@@ -179,7 +179,7 @@ class UnaryExpr : Expr
     Expr opnd;
 
     /// Constructor.
-    this(Kind kind, Type exprTy, Expr opnd, SrcLoc loc)
+    this(Kind kind, const Type exprTy, Expr opnd, SrcLoc loc)
     {
         assert(exprTy );
         assert(opnd );
@@ -239,7 +239,7 @@ class MemberExpr : Expr
     string name;
 
     /// Constructor.
-    this(Type resType, Expr struc, string name, SrcLoc loc)
+    this(const Type resType, Expr struc, string name, SrcLoc loc)
     {
         assert(resType );
         assert(struc );
@@ -264,7 +264,7 @@ class CallExpr : Expr
     /// Constructor.
     /// [retType] - function's return type.
     /// [callee] - Func name.
-    this(Type retType, Expr callee, Expr[] args, SrcLoc loc)
+    this(const Type retType, Expr callee, Expr[] args, SrcLoc loc)
     {
         assert(retType );
         assert(callee );
@@ -290,7 +290,7 @@ class BinExpr : Expr
     Expr rhs;
 
     /// Constructor.
-    this(Type resType, string op, Expr lhs, Expr rhs, SrcLoc loc)
+    this(const Type resType, string op, Expr lhs, Expr rhs, SrcLoc loc)
     {
         assert(resType );
         assert(op );
@@ -316,7 +316,7 @@ class CondExpr : Expr
     Expr sec;
 
     /// Constructor.
-    this(Type type, Expr cond, Expr first, Expr sec, SrcLoc loc)
+    this(const Type type, Expr cond, Expr first, Expr sec, SrcLoc loc)
     {
         assert(type && cond && first && sec);
         super(type, loc);
@@ -340,7 +340,7 @@ class AssignExpr : Expr
     Expr rhs;
 
     /// Constructor.
-    this(Type resType, string op, Expr lhs, Expr rhs, SrcLoc loc)
+    this(const Type resType, string op, Expr lhs, Expr rhs, SrcLoc loc)
     {
         assert(resType);
         assert(lhs  && rhs );
@@ -396,7 +396,7 @@ class CompLitExpr : Expr
     InitExpr[] inits;
 
     /// Constructor.
-    this(Type litType, InitExpr[] inits, SrcLoc loc)
+    this(const Type litType, InitExpr[] inits, SrcLoc loc)
     {
         assert(litType);
         super(litType, loc);
@@ -413,7 +413,7 @@ class CommaExpr : Expr
     Expr[] lists;
 
     /// Constructor.
-    this(Type type, Expr[] lists, SrcLoc loc)
+    this(const Type type, Expr[] lists, SrcLoc loc)
     {
         assert(type);
         super(type, loc);

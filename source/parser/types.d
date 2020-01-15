@@ -41,6 +41,7 @@ class Type
         ULLONG,
         FLOAT,
         DOUBLE,
+        /// An enumeration is simply a placeholder type.
         ENUM,
         /// Derived types:
         /// array, record, function, ptr.
@@ -163,7 +164,7 @@ class Type
 }
 
 /// Signed integer?
-bool isSigned(Type type)
+bool isSigned(const Type type)
 {
     return (
         (type.kind == Type.SCHAR) ||
@@ -174,7 +175,7 @@ bool isSigned(Type type)
 }
 
 /// Unsigned integer?
-bool isUnsigned(Type type)
+bool isUnsigned(const Type type)
 {
     return (
         (type.kind == Type.UCHAR) ||
@@ -185,7 +186,7 @@ bool isUnsigned(Type type)
 }
 
 /// Get unsigned version.
-Type getUnsigned(Type type)
+Type getUnsigned(const Type type)
 {
     assert(isSigned(type));
 
@@ -202,7 +203,7 @@ Type getUnsigned(Type type)
 }
 
 /// Get signed version.
-Type getSigned(Type type)
+Type getSigned(const Type type)
 {
     assert(isUnsigned(type));
 
@@ -219,14 +220,14 @@ Type getSigned(Type type)
 }
 
 /// Integer?
-bool isInteger(Type type)
+bool isInteger(const Type type)
 {
     return (isSigned(type) || isUnsigned(type) || (type == boolType));
 }
 
 /// p 6.3.1.1 1
 /// Integer rank.
-uint8_t intRank(Type type)
+uint8_t intRank(const Type type)
 {
     assert(isInteger(type));
 
@@ -244,7 +245,7 @@ uint8_t intRank(Type type)
 }
 
 /// Max value of an integer type.
-long intMaxVal(Type type)
+long intMaxVal(const Type type)
 {
     assert(isInteger(type));
 
@@ -269,7 +270,7 @@ long intMaxVal(Type type)
 /// p 6.2.5 10, 11
 /// Floating point.
 /// Note we're only supporting real FP types.
-bool isFP(Type type)
+bool isFP(const Type type)
 {
     return (
         (type.kind == Type.FLOAT) ||
@@ -278,7 +279,7 @@ bool isFP(Type type)
 
 /// p 6.2.5 17
 /// Integer or FP.
-bool isReal(Type type)
+bool isReal(const Type type)
 {
     return (
         isInteger(type) ||
@@ -294,7 +295,7 @@ alias isArithmetic = isReal;
 /// p 6.2.5 21 Scalar type.
 /// Arithmetic types and pointer types are
 /// collectively called scalar types.
-bool isScalar(Type type)
+bool isScalar(const Type type)
 {
     return (
         isArithmetic(type) ||
