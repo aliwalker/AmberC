@@ -47,7 +47,7 @@ void uniProlog(
     int line = __LINE__
 )
 {
-    stderr.writefln("\n%s==== unittest starts at %s %s ====%s", COLOR_INFO, file, line, COLOR_RES);
+    stderr.writefln("\n%s==== unittest starts at %s:%s ====%s", COLOR_INFO, file, line, COLOR_RES);
 }
 
 /// Called on unittest ends.
@@ -56,7 +56,7 @@ void uniEpilog(
     int line = __LINE__
 )
 {
-    stderr.writefln("%s==== unittest ends at %s %s ====%s\n", COLOR_INFO, file, line, COLOR_RES);
+    stderr.writefln("%s==== unittest ends at %s:%s ====%s\n", COLOR_INFO, file, line, COLOR_RES);
 }
 
 unittest

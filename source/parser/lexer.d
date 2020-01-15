@@ -142,8 +142,6 @@ struct Token
         INT,
         /// Both float and double precisions.
         FLOAT,
-        /// Char literal.
-        CHAR,
         /// String literal.
         STRING,
         /// End-of-file indicator.
@@ -162,9 +160,6 @@ struct Token
 
         /// Kind::SEP, Kind::STRING, Kind::IDENT, Kind::KW
         string stringVal;
-
-        /// Kind::CHAR
-        char charVal;
     }
 
     /// Integer suffix.
@@ -206,15 +201,6 @@ struct Token
         this.fsfx = sfx;
     }
 
-    /// Char.
-    this(Kind kind, char ch, SrcPos pos)
-    {
-        assert(kind == CHAR, "Expect CHAR");
-        this.kind = kind;
-        this.charVal = ch;
-        this.pos = pos;
-    }
-
     /// The rest.
     this(Kind kind, string value, SrcPos pos) {
         assert(
@@ -239,7 +225,6 @@ struct Token
         switch (kind) {
         case KW:        return format("keyword: %s", stringVal);
         case IDENT:     return format("identifier: %s", stringVal);
-        case CHAR:      return format("charactor: %s", charVal);
         case STRING:    return format("string: %s", stringVal);
         case SEP:       return format("separator: %s", stringVal);
         case INT:       return format("integer: %s", intVal);
@@ -733,7 +718,7 @@ LexingResult lexStream(ref CharStream chars)
             if (ch == '\'')
             {
                 tokens.put(Token(
-                    Token.CHAR,
+                    Token.INT,
                     val,
                     pos
                 ));
@@ -966,13 +951,6 @@ unittest {
                 );
                 break;
 
-            case Token.CHAR:
-                assert(
-                    etok.charVal == tok.charVal,
-                    format("expected %s to equal %s", tok.charVal, etok.charVal)
-                );
-                break;
-
             default:
             }
         }
@@ -1107,7 +1085,7 @@ unittest {
     testValidCode(
         "'c'",
         [
-            Token(Token.CHAR, 'c', SrcPos()),
+            Token(Token.INT, 'c', SrcPos()),
             Token(SrcPos()),
         ]
     );

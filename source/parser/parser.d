@@ -709,7 +709,7 @@ Expr parseParen(ref TokenStream tokstr)
             // Abort on errors.
             return null;
         }
-        
+
         
     }
     
@@ -999,7 +999,7 @@ Type parsePtr(ref TokenStream tokstr, Type type)
 
     while (tokstr.matchSep("*"))
     {
-        uint8_t quals = parseTypeQuals(tokstr);
+        uint8_t quals = parseQuals(tokstr);
         type = getPtrType(type).getQualType(quals);
     }
 
@@ -1012,7 +1012,7 @@ Type parsePtr(ref TokenStream tokstr, Type type)
 Type parseSpecQualList(ref TokenStream tokstr)
 {
     // Consume any prefix qulifiers.
-    uint8_t quals = parseTypeQuals(tokstr);
+    uint8_t quals = parseQuals(tokstr);
 
     // Type specifiers.
     if (!tokstr.peek().isSpecifier())
@@ -1026,7 +1026,7 @@ Type parseSpecQualList(ref TokenStream tokstr)
     auto type = parseTypeSpecs(tokstr);
 
     // Consume any postfix qualifiers.
-    quals |= parseTypeQuals(tokstr);
+    quals |= parseQuals(tokstr);
 
     return (quals == 0) ? type : getQualType(type, quals);
 }
@@ -1034,7 +1034,7 @@ Type parseSpecQualList(ref TokenStream tokstr)
 /// type-qualifiers
 ///     : "const" type-qualifiers*
 ///     | "register" type-qualifiers*
-uint8_t parseTypeQuals(ref TokenStream tokstr)
+uint8_t parseQuals(ref TokenStream tokstr)
 {
     uint8_t quals = 0;
     auto tok = tokstr.read();
@@ -1146,7 +1146,7 @@ private Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
     uint8_t quals = 0;
     if (tokstr.peek().isQualifier())
     {
-        quals |= parseTypeQuals(tokstr);
+        quals |= parseQuals(tokstr);
     }
 
     auto tok = tokstr.read();
@@ -1168,7 +1168,7 @@ private Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
         case "short":
             if (tokstr.peek().isQualifier())
             {
-                quals |= parseTypeQuals(tokstr);
+                quals |= parseQuals(tokstr);
             }
 
             // "signed short int". "int" is optional.
@@ -1183,7 +1183,7 @@ private Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
         case "long":
             if (tokstr.peek().isQualifier())
             {
-                quals |= parseTypeQuals(tokstr);
+                quals |= parseQuals(tokstr);
             }
 
             // "signed long long (int)"
@@ -1191,7 +1191,7 @@ private Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
             {
                 if (tokstr.peek().isQualifier())
                 {
-                    quals |= parseTypeQuals(tokstr);
+                    quals |= parseQuals(tokstr);
                 }
                 tokstr.matchKW("int");
                 resType = llongTy;
