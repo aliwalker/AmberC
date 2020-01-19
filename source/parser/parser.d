@@ -907,8 +907,9 @@ uint8_t parseQuals(ref TokenStream tokstr)
 ///     int (*([4]))                    - ✗
 ///
 /// abstract-declarator
-///     : "(" (ptr | ("[" IntExpr? "]"))+ ")"?
-///           ^
+///     : ptr abstract-declarator*
+///     | "[" constant-expr "]" abstract-declarator*
+///        ^
 Type parseAbsDecltr(ref TokenStream tokstr, Type type)
 {
     assert(type);
@@ -1005,6 +1006,14 @@ Type parseAbsDecltr(ref TokenStream tokstr, Type type)
 /// indicated by "^" in the above.
 /// Then we'll have to wrap this into(done by [parseAbsDecltr]):
 ///  "pointer to a const-qualified pointer that points to an int array of length 5".
+///
+/// ptr-to-array-or-func-type
+///     : typename "(" abstract-declarator ")"
+///     | typename "(" abstract-declarator ")" parameter-list
+///     | typename "(" abstract-declarator ")" "[" constant-expr? "]"
+///     | typename "[" constant-expr? "]"
+///                 ^
+/// [type] represents the [typename] on the left hand side.
 Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
 {
     auto tok = tokstr.read();
@@ -1016,9 +1025,10 @@ Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
     /// Array Type
     if (tok.stringVal == "[")
     {
+        // Incomplete type.
         if (tokstr.matchSep("]"))
         {
-            // TODO.
+            return getArrayType(type, -1);
         }
 
         auto asz = cast(IntExpr)parseAssignment(tokstr);
@@ -1033,13 +1043,6 @@ Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
         return getArrayType(type, asz.value);
     }
 
-    // Stack that records how many '(' are waited to be
-    // balanced.
-    auto stack = ["("];
-
-    // Tokens that are skipped.
-    Token[] skippedToks = [];
-
     // Either pointer or array.
     if (!tokstr.peekSep("*") && !tokstr.peekSep("["))
     {
@@ -1050,7 +1053,13 @@ Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
         );
     }
 
-    // Skip until we see the final '(' or '['.
+    // Stack that records how many '(' are waited to be balanced.
+    auto stack = ["("];
+
+    // Tokens that are skipped.
+    Token[] skippedToks = [];
+
+    // Skip until we see the matching ')' for the first '('.
     while (stack.length != 0)
     {
         if (tokstr.peek().kind == Token.EOF)
@@ -1126,7 +1135,7 @@ Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
         exprLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
         expectSep(tokstr, "]");
 
-        // Wrap the ptr to array up.
+        // Wrap the "ptr to array" up.
         return parseAbsDecltr(
             skippedTokstr,
             // NOTE: the pointer is not parsed yet.
@@ -1145,8 +1154,7 @@ Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
     }
 }
 
-/// ptr
-///     : "*" type-qualifier-list ptr*
+/// ptr : "*" type-qualifier-list ptr*
 ///
 /// [type] is the current type represented by spec-qual list.
 Type parsePtr(ref TokenStream tokstr, Type type)
