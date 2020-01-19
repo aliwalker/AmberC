@@ -109,6 +109,16 @@ private bool isStorageClassSpecifier(Token tok)
     return any!((val) => compTokStr(tok, Token.KW, val))(sckw);
 }
 
+/// NOTE: storage-class/function specifiers are handled separately.
+///
+/// declaration-specifiers
+///     | type-specifier declaration-specifiers?
+///     | type-qualifier declaration-specifiers?
+Type parseDeclSpecs(ref TokenStream tokstr)
+{
+    return parseSpecQualList(tokstr);
+}
+
 /// expr-stmt
 ///     : expression? ";"
 Stmt parseExprStmt(ref TokenStream tokstr)
@@ -695,9 +705,9 @@ Expr parsePrimary(ref TokenStream tokstr)
 
 /// paren
 ///     : "(" expr ")"                              - grouping.
-///        ^
+///           ^
 ///     | "(" typename ")" "{" initalizer-list "}"  - compound literal.
-///        ^
+///           ^
 Expr parseParen(ref TokenStream tokstr)
 {
     // Compound literal.
@@ -710,10 +720,58 @@ Expr parseParen(ref TokenStream tokstr)
             return null;
         }
 
-        
+        if (!tokstr.expectSep(")"))
+        {
+            return null;
+        }
+
+        InitExpr[] inits = parseInitList(tokstr, type);
+
     }
     
     return parseExpr(tokstr);
+}
+
+/// initializer
+///     : assignment-expression
+///     | "{" initializer-list ","? "}"
+///
+/// For every initializer, there must be an associated type, which if provided
+/// by other parsers.
+Expr parseInitializer(ref TokenStream tokstr, const Type type)
+{
+    // Compound literal.
+    if (tokstr.matchSep("{"))
+    {
+        InitExpr[] inits = parseInitList(tokstr, type);
+
+        if (!tokstr.expectSep("}"))
+        {
+            return null;
+        }
+    }
+
+    return parseExprError(
+        tokstr,
+        "Not implemented yet",
+        SrcLoc(tokstr.peek.pos, tokstr.filename)
+    );
+}
+
+/// initializer-list
+///     : designator* "=" initializer
+///
+/// designator
+///     : "[" constant-expression "]"
+///     | "." identifier
+InitExpr[] parseInitList(ref TokenStream tokstr, const Type type)
+{
+    parseExprError(
+        tokstr,
+        "Not implemented yet",
+        SrcLoc(tokstr.peek.pos, tokstr.filename)
+    );
+    return null;
 }
 
 /// type-name
@@ -1102,16 +1160,6 @@ Type parsePtr(ref TokenStream tokstr, Type type)
     }
 
     return type;
-}
-
-/// NOTE: storage-class/function specifiers are handled separately.
-///
-/// declaration-specifiers
-///     | type-specifier declaration-specifiers?
-///     | type-qualifier declaration-specifiers?
-Type parseDeclSpecs(ref TokenStream tokstr)
-{
-    return parseSpecQualList(tokstr);
 }
 
 /// intTypeSpec

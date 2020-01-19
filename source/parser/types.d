@@ -506,10 +506,12 @@ class ArrayType : Type
     const Type elemTy;
 
     /// Size of the array.
-    size_t size;
+    long size;
 
     /// Constructor.
-    private this(const Type elemTy, size_t size, uint8_t qual = 0)
+    /// When the [size] is not known yet. [size] should be set to
+    /// -1.
+    private this(const Type elemTy, long size, uint8_t qual = 0)
     {
         super(DERV, qual);
 
@@ -517,8 +519,15 @@ class ArrayType : Type
         this.size = size;
     }
 
+    /// Whether this is a complete array type.
+    bool isComplete() const 
+    {
+        return size != -1;
+    }
+
     override ulong typeSize() const
     {
+        assert(size != -1);
         return elemTy.typeSize() * size;
     }
 
@@ -543,11 +552,9 @@ class ArrayType : Type
     override string toString() const
     {
         // Array of FuncType ptrs.
-        auto ptrType = cast(PtrType)elemTy;
-        if (ptrType)
+        if (auto ptrType = cast(PtrType)elemTy)
         {
-            auto funcType = cast(FuncType)ptrType.base;
-            if (funcType)
+            if (auto funcType = cast(FuncType)ptrType.base)
             {
                 return format!"%s(*%s[%s])%s"(
                     funcType.retType.toString(),
@@ -761,7 +768,7 @@ RecType getRecType(
 }
 
 /// Get or create an array type.
-ArrayType getArrayType(const Type elemTy, size_t size)
+ArrayType getArrayType(const Type elemTy, long size)
 {
     auto astr = new ArrayType(elemTy, size).toString();
     
