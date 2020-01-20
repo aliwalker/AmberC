@@ -725,8 +725,6 @@ Expr parseParen(ref TokenStream tokstr)
             return null;
         }
 
-        InitExpr[] inits = parseInitList(tokstr, type);
-
     }
     
     return parseExpr(tokstr);
@@ -735,12 +733,11 @@ Expr parseParen(ref TokenStream tokstr)
 /// initializer
 ///     : assignment-expression
 ///     | "{" initializer-list ","? "}"
-///
-/// For every initializer, there must be an associated type, which if provided
+///       ^
+/// For every initializer, there must be an associated [type], which if provided
 /// by other parsers.
 Expr parseInitializer(ref TokenStream tokstr, const Type type)
 {
-    // Compound literal.
     if (tokstr.matchSep("{"))
     {
         InitExpr[] inits = parseInitList(tokstr, type);
@@ -750,15 +747,13 @@ Expr parseInitializer(ref TokenStream tokstr, const Type type)
             return null;
         }
     }
-
-    return parseExprError(
-        tokstr,
-        "Not implemented yet",
-        SrcLoc(tokstr.peek.pos, tokstr.filename)
-    );
+    return parseAssignment(tokstr);
 }
 
 /// initializer-list
+///     : initializer-list-item ( "," initializer-list )?
+///
+/// initializer-list-item
 ///     : designator* "=" initializer
 ///
 /// designator
@@ -775,8 +770,9 @@ InitExpr[] parseInitList(ref TokenStream tokstr, const Type type)
 }
 
 /// type-name
-///     : specifier-qualifier-list ptr? abs-decltr*
+///     : specifier-qualifier-list abstract-declarator*
 ///       ^
+/// If there's any abstract declarator, then this type name is a complex type name.
 Type parseTypeName(ref TokenStream tokstr)
 {
     assert(tokstr.peek().isSpecifier() || tokstr.peek().isQualifier());
@@ -791,7 +787,7 @@ Type parseTypeName(ref TokenStream tokstr)
     Type type = parsePtr(tokstr, objtype);
     if (tokstr.peekSep("(") || tokstr.peekSep("["))
     {
-        return parsePtrToArrayOrFuncType(tokstr, type);
+        return parseComplexTypeName(tokstr, type);
     }
     else
     {
@@ -995,9 +991,8 @@ Type parseAbsDecltr(ref TokenStream tokstr, Type type)
     return type;
 }
 
-/// This is a bit tricky. We'll have to parse the inner-most
-/// type first, then wrap it up.
-///
+/// I'll call array type names, function pointer types, pointer to array types and any types
+/// that can be created by the combination of these categories as complex types.
 /// For example, to parse type:
 ///     "int (*const(*))[5]"
 ///      ^^^            ^^^
@@ -1007,14 +1002,14 @@ Type parseAbsDecltr(ref TokenStream tokstr, Type type)
 /// Then we'll have to wrap this into(done by [parseAbsDecltr]):
 ///  "pointer to a const-qualified pointer that points to an int array of length 5".
 ///
-/// ptr-to-array-or-func-type
+/// complex-type-name
 ///     : typename "(" abstract-declarator ")"
-///     | typename "(" abstract-declarator ")" parameter-list
-///     | typename "(" abstract-declarator ")" "[" constant-expr? "]"
-///     | typename "[" constant-expr? "]"
+///     | typename "(" abstract-declarator ")" parameter-list            - Fn ptr/array of fn ptr.
+///     | typename "(" abstract-declarator ")" "[" constant-expr? "]"    - Ptr to array.
+///     | typename "[" constant-expr? "]"                                - Array type.
 ///                 ^
 /// [type] represents the [typename] on the left hand side.
-Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
+Type parseComplexTypeName(ref TokenStream tokstr, Type type)
 {
     auto tok = tokstr.read();
     assert(
@@ -1154,7 +1149,7 @@ Type parsePtrToArrayOrFuncType(ref TokenStream tokstr, Type type)
     }
 }
 
-/// ptr : "*" type-qualifier-list ptr*
+/// ptr : "*" type-qualifier-list? ptr*
 ///
 /// [type] is the current type represented by spec-qual list.
 Type parsePtr(ref TokenStream tokstr, Type type)
