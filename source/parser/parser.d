@@ -1557,6 +1557,14 @@ unittest
         assert(type.toString == repr, format!"expected type string '%s', but got '%s'"(repr, type));
     }
 
+    void testInvalidType(string code)
+    {
+        auto tokstr = TokenStream(code, "testParseTypename.c");
+        auto type = parseTypeName(tokstr);
+        writeln(type);
+        assert(!type);
+    }
+
     alias testBasic = testParseType!(Type);
     alias testPtr = testParseType!(PtrType);
     alias testFunc = testParseType!(FuncType);
@@ -1573,7 +1581,11 @@ unittest
     // Simple func ptr.
     testPtr("int(*)()", "int(*)()");
 
+    // Nested parentheses.
     testPtr("int((*))()", "int(*)()");
+
+    // Const ptr.
+    testPtr("int(*const)()", "int(*const)()");
 
     // TODO: after finishing parameter-list-type.
     // Simple func.
@@ -1581,6 +1593,9 @@ unittest
 
     // Test array.
     testArray("int[5]", "int[5]");
+
+    // Array of int*.
+    testArray("int*[5]", "int*[5]");
 
     // Test struct.
     testStruc("struct Foo", "struct Foo");
@@ -1590,6 +1605,9 @@ unittest
 
     // Test funcPtr array.
     testArray("int(*const [2])()", "int(*const[2])()");
+
+    testArray("int*(*[2])()", "int*(*[2])()");
+
     uniEpilog();
 }
 
