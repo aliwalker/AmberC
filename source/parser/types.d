@@ -355,6 +355,19 @@ class RecType : Type
         this.isUnion = isUnion;
     }
 
+    /// Returns the member of [name]. If [name] does
+    /// not exist, returns dummy Field instance whose type is null.
+    const(Field) member(string name) const
+    {
+        foreach (m; members)
+        {
+            if (m.name == name)
+                return m;
+        }
+        
+        return Field(null, null, -1);
+    }
+
     override ulong typeSize() const
     {
         if (members is null)

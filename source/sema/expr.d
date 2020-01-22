@@ -213,6 +213,46 @@ private Expr ptrConv(Expr ptr, Expr other)
     return ptr;
 }
 
+/// Semantic checks for array designator.
+bool semaCheckArrayDesg(ref ArrayType type, long index)
+{
+    if (type.size != -1 && index >= type.size)
+    {
+        return false;
+    }
+
+    if (type.size == -1)
+    {
+        type = getArrayType(type.elemTy, index + 1);
+    }
+
+    return true;
+}
+
+/// Semantic checks for member designator.
+bool semaCheckMemberDesg(ref RecType type, string name, SrcLoc loc)
+{
+    if (!type.members)
+    {
+        semaErrExpr(
+            "incomplete type is not allowed",
+            loc
+        );
+        return false;
+    }
+
+    if (type.member(name).type is null)
+    {
+        semaErrExpr(
+            format!"'%s' is not a member of %s"(name, type),
+            loc
+        );
+        return false;
+    }
+
+    return true;
+}
+
 /// Semantic action on comma expressions.
 Expr semaCommaExpr(Expr[] exprs, SrcLoc opLoc)
 {

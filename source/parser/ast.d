@@ -361,7 +361,7 @@ class AssignExpr : Expr
     }
 }
 
-/// Represents an non-compound initializer.
+/// Represents an initializer.
 /// For example, the following declaration
 ///
 /// int arr[] = {1, 2, 3};
@@ -378,21 +378,25 @@ class InitExpr : Expr
     /// Offset from the variable. Used in array.
     size_t offset;
 
+    /// Next initExpr.
+    InitExpr next;
+
     /// Constructor.
     this(Expr value, size_t offset, SrcLoc loc)
     {
-        assert(value );
+        assert(value);
 
         super(value.type, loc);
         this.value = value;
         this.offset = offset;
+        this.next = null;
     }
 }
 
 /// Represents a compound literal.
 class CompLitExpr : Expr
 {
-    /// A list of innitializer.
+    /// A list of initializer.
     InitExpr[] inits;
 
     /// Constructor.

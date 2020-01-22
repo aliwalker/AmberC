@@ -705,15 +705,15 @@ Expr parsePrimary(ref TokenStream tokstr)
 
 /// paren
 ///     : "(" expr ")"                              - grouping.
-///           ^
 ///     | "(" typename ")" "{" initalizer-list "}"  - compound literal.
+///     | "(" typename ")" "{" initializer-list "}" - compound literal.
 ///           ^
 Expr parseParen(ref TokenStream tokstr)
 {
     // Compound literal.
     if (tokstr.peek().isSpecifier() || tokstr.peek().isQualifier())
     {
-        auto type = parseTypeName(tokstr);
+        Type type = parseTypeName(tokstr);
         if (!type)
         {
             // Abort on errors.
@@ -725,48 +725,124 @@ Expr parseParen(ref TokenStream tokstr)
             return null;
         }
 
+        // InitExpr inits = parseInitList(tokstr, type, 0);
     }
     
     return parseExpr(tokstr);
+}
+
+/// initializer-list
+///     : ( designator+ "=" )? initializer initializer-list
+///     | empty
+///
+/// designator
+///     : "[" constant-expr "]"
+///     | "." identifier
+Expr parseInitList(ref TokenStream tokstr, Type type, size_t offset)
+{
+    // Dummy head.
+    InitExpr init = new InitExpr(null, -1, SrcLoc());
+
+    while (init)
+    {
+        SrcLoc loc = SrcLoc(tokstr.peek().pos, tokstr.filename);
+
+        // Array designator.
+        if (tokstr.matchSep("["))
+        {
+            auto arrty = cast(ArrayType)type;
+            if (!arrty)
+            {
+                return parseExprError(
+                    tokstr,
+                    format!"array designator cannot initialize non-array type '%s'"(type),
+                    loc
+                );
+            }
+
+            auto index = cast(IntExpr)parseAssignment(tokstr);
+            if (!index)
+            {
+                return parseExprError(
+                    tokstr,
+                    format!"expression must have a constant value",
+                    loc
+                );
+            }
+
+            if (!tokstr.expectSep("]"))
+            {
+                return null;
+            }
+
+            if (!semaCheckArrayDesg(arrty, index.value))
+            {
+                return parseExprError(
+                    tokstr,
+                    format!"invalid array designator",
+                    loc
+                );
+            }
+        }
+
+        // Member designator.
+        else if (tokstr.matchSep("."))
+        {
+            auto recty = cast(RecType)type;
+            if (!recty)
+            {
+                return parseExprError(
+                    tokstr,
+                    format!"invalid designator type",
+                    loc
+                );
+            }
+
+            auto tokident = tokstr.read();
+            if (tokident.kind != Token.IDENT)
+            {
+                return parseExprError(
+                    tokstr,
+                    "expect an identifier",
+                    loc
+                );
+            }
+
+            if (!semaCheckMemberDesg(recty, tokident.stringVal, loc))
+            {
+                return null;
+            }
+        }
+
+        else break;
+    }
+
+    // return init.next;
+    return parseExprError(
+        tokstr,
+        "Not implemented yet",
+        SrcLoc(tokstr.peek.pos, tokstr.filename)
+    );
 }
 
 /// initializer
 ///     : assignment-expression
 ///     | "{" initializer-list ","? "}"
 ///       ^
-/// For every initializer, there must be an associated [type], which if provided
-/// by other parsers.
-Expr parseInitializer(ref TokenStream tokstr, const Type type)
+Expr parseInitializer(ref TokenStream tokstr, Type type)
 {
     if (tokstr.matchSep("{"))
     {
-        InitExpr[] inits = parseInitList(tokstr, type);
+        Expr inits = parseInitList(tokstr, type, 0);
 
+        // Optional comma.
+        tokstr.matchSep(",");
         if (!tokstr.expectSep("}"))
         {
             return null;
         }
     }
     return parseAssignment(tokstr);
-}
-
-/// initializer-list
-///     : initializer-list-item ( "," initializer-list )?
-///
-/// initializer-list-item
-///     : designator* "=" initializer
-///
-/// designator
-///     : "[" constant-expression "]"
-///     | "." identifier
-InitExpr[] parseInitList(ref TokenStream tokstr, const Type type)
-{
-    parseExprError(
-        tokstr,
-        "Not implemented yet",
-        SrcLoc(tokstr.peek.pos, tokstr.filename)
-    );
-    return null;
 }
 
 /// type-name
