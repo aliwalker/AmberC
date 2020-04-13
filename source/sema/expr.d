@@ -214,15 +214,29 @@ private Expr ptrConv(Expr ptr, Expr other)
 }
 
 /// Semantic checks for array designator.
-bool semaCheckArrayDesg(ref ArrayType type, long index)
+bool semaCheckArrayDesg(ref ArrayType type, Type oldType, long index, SrcLoc loc)
 {
     if (type.size != -1 && index >= type.size)
     {
+        semaErrExpr(
+            "subscript out of range",
+            loc
+        );
         return false;
     }
 
+    // TODO: type.isIncomplete()?
     if (type.size == -1)
     {
+        if (auto recty = cast(RecType)oldType)
+        {
+            semaErrExpr(
+                "initializer for flexible array within structure is not allowed",
+                loc
+            );
+            return false;
+        }
+
         type = getArrayType(type.elemTy, index + 1);
     }
 
@@ -251,6 +265,18 @@ bool semaCheckMemberDesg(ref RecType type, string name, SrcLoc loc)
     }
 
     return true;
+}
+
+/// Semantic action on compound literal.
+Expr semaCompLitExpr(Type type, InitExpr init, SrcLoc typeLoc)
+{
+    // TODO: If this is a global compound literal,
+    // the initializer-list shall contain only constant expressions.
+    // if (!isLocalEnv())
+    // {
+
+    // }
+    return new CompLitExpr(type, init, typeLoc);
 }
 
 /// Semantic action on comma expressions.

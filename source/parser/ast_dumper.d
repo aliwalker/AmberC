@@ -191,9 +191,12 @@ void dumpExpr(Expr node)
         );
         indents++;
         writeln(exprstr);
-        foreach (init; comp.inits)
+
+        InitExpr init = comp.inits;
+        while (init !is null)
         {
             dumpExpr(init);
+            init = init.next;
         }
         indents--;
     }

@@ -397,10 +397,10 @@ class InitExpr : Expr
 class CompLitExpr : Expr
 {
     /// A list of initializer.
-    InitExpr[] inits;
+    InitExpr inits;
 
     /// Constructor.
-    this(const Type litType, InitExpr[] inits, SrcLoc loc)
+    this(const Type litType, InitExpr inits, SrcLoc loc)
     {
         assert(litType);
         super(litType, loc);

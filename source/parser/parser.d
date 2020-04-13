@@ -705,7 +705,6 @@ Expr parsePrimary(ref TokenStream tokstr)
 
 /// paren
 ///     : "(" expr ")"                              - grouping.
-///     | "(" typename ")" "{" initalizer-list "}"  - compound literal.
 ///     | "(" typename ")" "{" initializer-list "}" - compound literal.
 ///           ^
 Expr parseParen(ref TokenStream tokstr)
@@ -713,6 +712,8 @@ Expr parseParen(ref TokenStream tokstr)
     // Compound literal.
     if (tokstr.peek().isSpecifier() || tokstr.peek().isQualifier())
     {
+        SrcLoc typeLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
+
         Type type = parseTypeName(tokstr);
         if (!type)
         {
@@ -725,7 +726,13 @@ Expr parseParen(ref TokenStream tokstr)
             return null;
         }
 
-        // InitExpr inits = parseInitList(tokstr, type, 0);
+        if (!tokstr.expectSep("{"))
+        {
+            return null;
+        }
+
+        InitExpr init = parseInitList(tokstr, type, 0/* offset start from 0. */);
+        return semaCompLitExpr(type, init, typeLoc);
     }
     
     return parseExpr(tokstr);
@@ -738,110 +745,156 @@ Expr parseParen(ref TokenStream tokstr)
 /// designator
 ///     : "[" constant-expr "]"
 ///     | "." identifier
-Expr parseInitList(ref TokenStream tokstr, Type type, size_t offset)
+///
+/// [type] is the type of the initializer, which appears to be an initializer-list.
+/// [offset] is needed because the parser maybe parsing nested initializer-list.
+InitExpr parseInitList(ref TokenStream tokstr, Type type, size_t offset)
 {
     // Dummy head.
-    InitExpr init = new InitExpr(null, -1, SrcLoc());
+    InitExpr initList = null;
+    InitExpr prevInit = null;
 
-    while (init)
+    // Type and offset used in current level of initializer-list.
+    Type oldType = type;
+    size_t oldOffset = offset;
+
+    // Consume all initializer.
+    for (; !tokstr.matchSep("}") ;)
     {
-        SrcLoc loc = SrcLoc(tokstr.peek().pos, tokstr.filename);
+        // Starting loc of the current designator(if any).
+        SrcLoc desLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
 
-        // Array designator.
-        if (tokstr.matchSep("["))
+        // Parse the current designator list(if any).
+        for (;;)
         {
-            auto arrty = cast(ArrayType)type;
-            if (!arrty)
+            SrcLoc loc = SrcLoc(tokstr.peek().pos, tokstr.filename);
+
+            // Array designator.
+            if (tokstr.matchSep("["))
             {
-                return parseExprError(
-                    tokstr,
-                    format!"array designator cannot initialize non-array type '%s'"(type),
-                    loc
-                );
+                auto arrty = cast(ArrayType)type;
+                if (!arrty)
+                {
+                    return cast(InitExpr)parseExprError(
+                        tokstr,
+                        format!"array designator cannot initialize non-array type '%s'"(type),
+                        loc
+                    );
+                }
+
+                // Index value must be constant within a designator.
+                auto index = cast(IntExpr)parseAssignment(tokstr);
+                if (!index)
+                {
+                    return cast(InitExpr)parseExprError(
+                        tokstr,
+                        format!"expression must have a constant value",
+                        loc
+                    );
+                }
+
+                if (!tokstr.expectSep("]") || !semaCheckArrayDesg(arrty, oldType, index.value, loc))
+                {
+                    return null;
+                }
+
+                // Update type and offset.
+                type = cast(Type)arrty.elemTy;
+                offset += arrty.elemTy.typeSize() * index.value;
             }
 
-            auto index = cast(IntExpr)parseAssignment(tokstr);
-            if (!index)
+            // Member designator.
+            else if (tokstr.matchSep("."))
             {
-                return parseExprError(
-                    tokstr,
-                    format!"expression must have a constant value",
-                    loc
-                );
+                auto recty = cast(RecType)type;
+                if (!recty)
+                {
+                    return cast(InitExpr)parseExprError(
+                        tokstr,
+                        format!"invalid designator type",
+                        loc
+                    );
+                }
+
+                auto tokident = tokstr.read();
+                if (tokident.kind != Token.IDENT)
+                {
+                    return cast(InitExpr)parseExprError(
+                        tokstr,
+                        "expect an identifier",
+                        loc
+                    );
+                }
+
+                if (!semaCheckMemberDesg(recty, tokident.stringVal, loc))
+                {
+                    return null;
+                }
+
+                // Update type and offset.
+                type = cast(Type)recty.member(tokident.stringVal).type;
+                offset += recty.member(tokident.stringVal).offset;
             }
 
-            if (!tokstr.expectSep("]"))
-            {
-                return null;
-            }
-
-            if (!semaCheckArrayDesg(arrty, index.value))
-            {
-                return parseExprError(
-                    tokstr,
-                    format!"invalid array designator",
-                    loc
-                );
-            }
+            // Done parsing the current designator list.
+            else break;
         }
 
-        // Member designator.
-        else if (tokstr.matchSep("."))
+        // If there's a designator list, then an '=' sign must be present.
+        if (oldType != type && !tokstr.expectSep("="))
         {
-            auto recty = cast(RecType)type;
-            if (!recty)
-            {
-                return parseExprError(
-                    tokstr,
-                    format!"invalid designator type",
-                    loc
-                );
-            }
-
-            auto tokident = tokstr.read();
-            if (tokident.kind != Token.IDENT)
-            {
-                return parseExprError(
-                    tokstr,
-                    "expect an identifier",
-                    loc
-                );
-            }
-
-            if (!semaCheckMemberDesg(recty, tokident.stringVal, loc))
-            {
-                return null;
-            }
+            // Syntax error.
+            return null;
         }
 
-        else break;
+        Expr val = parseInitializer(tokstr, type, offset);
+        if (!val)
+        {
+            // Parsing/sema error.
+            return null;
+        }
+
+        // Add new initializer to the initializer-list.
+        InitExpr currInit = new InitExpr(val, offset, desLoc);
+        if (!initList)
+        {
+            initList = currInit;
+            prevInit = currInit;
+        }
+        else
+        {
+            prevInit.next = currInit;
+        }
+
+        // Restore type and offset.
+        type = oldType;
+        offset = oldOffset;
+
+        if (!tokstr.peekSep("}") && !tokstr.expectSep(","))
+        {
+            // Syntax error
+            return null;
+        }
     }
 
-    // return init.next;
-    return parseExprError(
-        tokstr,
-        "Not implemented yet",
-        SrcLoc(tokstr.peek.pos, tokstr.filename)
-    );
+    return initList;
 }
 
 /// initializer
 ///     : assignment-expression
 ///     | "{" initializer-list ","? "}"
 ///       ^
-Expr parseInitializer(ref TokenStream tokstr, Type type)
+///
+/// [offset] might be non-zero when parseInitializer is called from parseInitList.
+/// It only matters when the next initializer to be parsed is itself another initializer-list.
+/// [type] is the type of the initializer.
+Expr parseInitializer(ref TokenStream tokstr, Type type, size_t offset)
 {
     if (tokstr.matchSep("{"))
     {
-        Expr inits = parseInitList(tokstr, type, 0);
-
-        // Optional comma.
-        tokstr.matchSep(",");
-        if (!tokstr.expectSep("}"))
-        {
-            return null;
-        }
+        return parseInitList(tokstr, type, offset);
     }
+
     return parseAssignment(tokstr);
 }
 
