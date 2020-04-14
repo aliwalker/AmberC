@@ -867,8 +867,6 @@ private void iterFields(
     void delegate(Type, ulong) opField
 )
 {
-    assert((fields.length & 0x1) == 0);
-
     foreach (i, f; fields)
     {
         opField(f.type, i);

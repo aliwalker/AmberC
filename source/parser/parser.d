@@ -855,7 +855,9 @@ InitExpr parseInitList(ref TokenStream tokstr, Type type, size_t offset)
         }
 
         // Add new initializer to the initializer-list.
-        InitExpr currInit = new InitExpr(val, offset, desLoc);
+        InitExpr currInit = cast(InitExpr)val !is null  /* If it is itself an initializer, we simply use it. */
+            ? cast(InitExpr)val
+            : new InitExpr(val, offset, desLoc);
         if (!initList)
         {
             initList = currInit;
@@ -1411,6 +1413,37 @@ RecField[] parseStructDeclList(ref TokenStream tokstr)
     // TODO:
     tokstr.expectSep("}");
     return null;
+}
+
+/// Test parseParen.
+unittest
+{
+    uniProlog();
+    Expr testParseCompLitExpr(string code)
+    {
+        auto tokstr = TokenStream(code, "dummy.c");
+        auto e = cast(CompLitExpr)parsePrimary(tokstr);
+
+        assert(e && "Not a CompLitExpr.");
+        dumpExpr(e);
+        return e;
+    }
+
+    getRecType("simple", [
+        RecField(intType, "member_1"),
+        RecField(charType, "member_2"),
+        RecField(longType, "member_3")
+    ]);
+
+    getRecType("has_nested_member", [
+        RecField(getRecType("simple"), "simple_member"),
+        RecField(longType, "member_2")
+    ]);
+
+    testParseCompLitExpr("(int) {1}");
+    testParseCompLitExpr("(struct simple) { .member_1 = 10, .member_3 = 100, }");
+    testParseCompLitExpr("(struct has_nested_member) { .simple_member = { .member_2 = 20 }, .member_2 = 100 }");
+    uniEpilog();
 }
 
 /// Test parsePrimary.
