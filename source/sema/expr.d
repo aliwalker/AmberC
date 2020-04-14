@@ -225,8 +225,7 @@ bool semaCheckArrayDesg(ref ArrayType type, Type oldType, long index, SrcLoc loc
         return false;
     }
 
-    // TODO: type.isIncomplete()?
-    if (type.size == -1)
+    if (!type.isComplete())
     {
         if (auto recty = cast(RecType)oldType)
         {
@@ -294,7 +293,7 @@ Expr semaCommaExpr(Expr[] exprs, SrcLoc opLoc)
     Expr[] voided = [];
     foreach (i, expr; exprs)
     {
-        voided ~= (i == exprs.length - 1)
+        voided ~= ((i + 1) == exprs.length)
             ? expr
             : opndConv(expr, voidType);
     }

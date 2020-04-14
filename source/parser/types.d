@@ -515,7 +515,7 @@ class FuncType : Type
         ap.put("(");
         foreach (i, p; params)
         {
-            if (i == (params.length - 1))
+            if ((i + 1) == params.length)
             {
                 ap.put(p.toString());
             }
@@ -883,44 +883,30 @@ Type getEnumType(string name)
     return entypes[name];
 }
 
-/// Helper for iterating record fields.
-/// [funct] accepts as params the type of the field, 
-/// and the name of the field.
-private void iterFields(
-    ref RecField[] fields,
-    void delegate(Type, ulong) opField
-)
-{
-    foreach (i, f; fields)
-    {
-        opField(f.type, i);
-    }
-}
-
 private RecType makeStrucType(
     string strucName, 
     RecField[] fields)
 {
     // Find alignment.
     ulong alig = 0;
-    iterFields(fields, (t, _)
+    foreach (f; fields)
     {
-        if (t.typeSize() > alig)
-            alig = t.typeSize();
-    });
+        if (f.type.typeSize() > alig)
+            alig = f.type.typeSize();
+    }
 
     // Assign offsets.
     ulong offset = 0;
     ulong size = 0;
-    iterFields(fields, (t, i)
+    foreach (i, f; fields)
     {
-        if (size + t.typeSize() < alig)
+        if (size + f.type.typeSize() < alig)
         {
-            size += t.typeSize();
+            size += f.type.typeSize();
         }
 
         // Clear size.
-        else if (size + t.typeSize() == alig)
+        else if (size + f.type.typeSize() == alig)
         {
             size = 0;
         }
@@ -929,12 +915,12 @@ private RecType makeStrucType(
         else
         {
             offset += alig - size;
-            size = t.typeSize();
+            size = f.type.typeSize();
         }
 
         fields[i].offset = offset;
-        offset += t.typeSize();
-    });
+        offset += f.type.typeSize();
+    }
 
     return new RecType(strucName, fields);
 }
@@ -943,10 +929,11 @@ private RecType makeUnionType(
     string unionName, 
     RecField[] fields)
 {
-    iterFields(fields, (t, i)
+    // Assign 0 to all offsets.
+    foreach (ref f; fields)
     {
-        fields[i].offset = 0;
-    });
+        f.offset = 0;
+    }
 
     return new RecType(unionName, fields, true);
 }
