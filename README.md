@@ -18,7 +18,7 @@ It is still at a very early stage. I'm currently working on the parser.
     - [x] logical-expressions(&&, ||).
     - [x] conditional-expressions(cond ? expr1 : expr2).
     - [x] assignments.
-    - [ ] initializers.
+    - [x] initializers.
 
 - Types
     - [x] qual/unqual simple types.

@@ -97,6 +97,12 @@ class Type
         }
     }
 
+    /// Whether this type is complete.
+    bool isComplete() const
+    {
+        return true;
+    }
+
     override size_t toHash() const
     {
         return cast(size_t)kind;
@@ -353,6 +359,19 @@ class RecType : Type
         this.name = name;
         this.members = members;
         this.isUnion = isUnion;
+
+        if (this.members !is null)
+            assert(checkMembersComplete(), "Field has incomplete type");
+    }
+
+    private bool checkMembersComplete()
+    {
+        foreach (m; members)
+        {
+            if (!m.type.isComplete())
+                return false;
+        }
+        return true;
     }
 
     /// Returns the member of [name]. If [name] does
@@ -389,6 +408,11 @@ class RecType : Type
 
         auto lmember = members[$ - 1];
         return lmember.offset + lmember.type.typeSize();
+    }
+
+    override bool isComplete() const
+    {
+        return (members !is null);
     }
 
     override size_t toHash() const
@@ -533,7 +557,7 @@ class ArrayType : Type
     }
 
     /// Whether this is a complete array type.
-    bool isComplete() const 
+    override bool isComplete() const 
     {
         return size != -1;
     }
