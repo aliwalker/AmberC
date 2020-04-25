@@ -270,7 +270,8 @@ class Parser
     ///     specifier-qualifier-list abstract-declarator.
     private Type typeName()
     {
-        return declarator(declSpec(), /* isAbstract */true);
+        Type base = declSpec();
+        return declarator(base, /* isAbstract */true);
     }
 
     private struct ParamStruct
@@ -296,16 +297,16 @@ class Parser
                 // Start of function parameters list.
                 return declFunc(base, params);
 
-            Type tmp = base;
-            if (tokstr.peekSep("*"))
-                // Create a placeholder type because next call to declarator
-                // will return type of "pointer to placeholder".
-                tmp = new Type();
+            // Create a placeholder type because next call to declarator
+            // will return type of "pointer to placeholder".
+            Type tmp = new Type();
+            if (!tokstr.peekSep("*"))
+                parseError("nested parentheses", tokstr.nextLoc());
 
             Type type = declarator(tmp, isAbstract, name, params);
             expectSep(")");
-            Type result = declarator(base, isAbstract, name, params);
-            return (tmp == base) ? result : fillType(result, type);
+            Type resolvedPlaceholder = declarator(base, isAbstract, name, params);
+            return fillType(type, resolvedPlaceholder);
         }
 
         if (tokstr.matchSep("["))
@@ -324,7 +325,9 @@ class Parser
         else
             tokstr.unread();
 
-        return declarator(base, isAbstract, name, params);
+        if (tokstr.peekSep("(") || tokstr.peekSep("["))
+            return declarator(base, isAbstract, name, params);
+        return base;
     }
 
     /// FIXME: this is quite tricky because we'll have to change
@@ -550,11 +553,31 @@ class Parser
             (type && type.size != intType.size && type.size != longType.size))
             parseError("incompatible declaration specifiers");
 
-        if (!type && size == shortType.size)
-            type = shortType;
+        if (size == shortType.size)
+        {
+            bool usig = (type && type.isUnsigned());
 
-        if (!type && size == longType.size)
-            type = isllong ? llongType : longType;
+            if (!type || type.size == intType.size)
+                type = shortType;
+            else
+                parseError("incompatible declaration specifiers");
+
+            if (usig)
+                type = type.getUnsigned();
+        }
+
+        if (size == longType.size)
+        {
+            bool usig = (type && type.isUnsigned());
+
+            if (!type || type.size == intType.size || type.size == longType.size)
+                type = isllong ? llongType : longType;
+            else
+                parseError("incompatible declaration specifiers");
+
+            if (usig)
+                type = type.getUnsigned();
+        }
 
         return isconst ? type.getConst() : type;
     }

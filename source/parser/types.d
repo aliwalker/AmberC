@@ -88,6 +88,9 @@ class Type
 
     Type getConst()
     {
+        if (isconst)
+            return this;
+
         Type copy = this.dup();
         copy.isconst = true;
         return copy;
