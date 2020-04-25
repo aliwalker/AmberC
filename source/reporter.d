@@ -41,28 +41,18 @@ void report(int svr, string msg, SrcLoc loc)
     stderr.writeln(locstr ~ msg);
 }
 
+/*
+Helpers for marking unittest.
+*/
+
 /// Called on unittest starts.
-void uniProlog(
-    string file = __FILE__,
-    int line = __LINE__
-)
+debug void uniProlog(string file = __FILE__, int line = __LINE__)
 {
     stderr.writefln("\n%s==== unittest starts at %s:%s ====%s", COLOR_INFO, file, line, COLOR_RES);
 }
 
 /// Called on unittest ends.
-void uniEpilog(
-    string file = __FILE__,
-    int line = __LINE__
-)
+debug void uniEpilog(string file = __FILE__, int line = __LINE__)
 {
     stderr.writefln("%s==== unittest ends at %s:%s ====%s\n", COLOR_INFO, file, line, COLOR_RES);
-}
-
-unittest
-{
-    uniProlog();
-    import parser.lexer : SrcPos;
-    report(SVR_ERR, "Dummy error message.", SrcLoc(SrcPos(23, 45), "dummy.c"));
-    uniEpilog();
 }

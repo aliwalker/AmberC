@@ -4,28 +4,40 @@
 module parser.types;
 
 import std.range;
-import std.stdio;
 import std.stdint;
 import std.array;
 import std.format;
-import std.typecons;
-debug import reporter;
 
 /// Size of a pointer.
 const PTR_SIZE = 8;
 
-/// Const qualifier.
-const uint8_t QUAL_CONST = 1;
-/// Register qualifier.
-const uint8_t QUAL_REG = 2;
+enum StorageClass : uint8_t
+{
+    UNSPECIFIED,
+    TYPEDEF,
+    EXTERN,
+    STATIC,
+    AUTO,
+    REGISTER,
+}
+
+/// NOTE: we simply opt for ignoring all these
+/// qualifiers except "const".
+enum Qualifier : uint8_t
+{
+    UNSPECIFIED,
+    CONST,
+    RESTRICT,
+    VOLATILE,
+    INLINE
+}
 
 /// Base type.
 class Type
 {
-    alias Kind = int;
-
-    /// Specifiers.
+    alias Kind = uint8_t;
     enum : Kind {
+        PLACE_HOLDER,
         VOID = 1,
         BOOL_,
         CHAR,
@@ -41,1082 +53,429 @@ class Type
         ULLONG,
         FLOAT,
         DOUBLE,
-        /// An enumeration is simply a placeholder type.
         ENUM,
-        /// Derived types:
-        /// array, record, function, ptr.
-        DERV,
+        ARRAY,
+        STRUCT,
+        FUNC,
+        PTR,
     }
-    Kind kind;
 
-    /// Qualifiers.
-    uint8_t qual;
+    Kind kind;
+    bool isconst;
+    ulong offset;
+    ulong size;
 
     /// Constructor for a base type in C.
-    private this(Kind kind, uint8_t qual = 0)
+    private this(Kind kind, ulong size, bool isconst = 0)
     {
-        assert(
-            kind == VOID    ||
-            kind == BOOL_   ||
-            kind == CHAR    ||
-            kind == SCHAR   ||
-            kind == SHORT   ||
-            kind == INT     ||
-            kind == LONG    ||
-            kind == LLONG   ||
-            kind == UCHAR   ||
-            kind == USHORT  ||
-            kind == UINT    ||
-            kind == ULONG   ||
-            kind == ULLONG  ||
-            kind == FLOAT   ||
-            kind == DOUBLE  ||
-            kind == ENUM    ||
-            kind == DERV
-        );
         this.kind = kind;
-        this.qual = qual;
+        this.size = size;
+
+        this.isconst = isconst;
+        this.offset = 0;
     }
 
-    /// C's sizeof operator.
-    ulong typeSize() const
+    /// Constructor for a placeholder type.
+    this() {
+        this.kind = PLACE_HOLDER;
+        this.size = 1;
+    }
+
+    Type dup()
     {
-        switch (kind)
-        {
-            case VOID:            return 0;
-            case BOOL_:           return 1;
-            case CHAR, SCHAR, UCHAR:     return 1;
-            case SHORT, USHORT:   return 2;
-            case INT, UINT:       return 4;
-            case LONG, ULONG:     return 8;
-            case LLONG, ULLONG:   return 8;
-            case FLOAT:           return 4;
-            case DOUBLE:          return 8;
-            default:
-                return -1;
-        }
+        return new Type(kind, size, isconst);
     }
 
-    /// Whether this type is complete.
+    Type getConst()
+    {
+        Type copy = this.dup();
+        copy.isconst = true;
+        return copy;
+    }
+
     bool isComplete() const
     {
         return true;
     }
 
-    override size_t toHash() const
+    bool isUnsigned() const
     {
-        return cast(size_t)kind;
+        return (
+            (kind == UCHAR)  ||
+            (kind == USHORT) ||
+            (kind == UINT)   ||
+            (kind == ULONG)  ||
+            (kind == ULLONG));
     }
 
-    override bool opEquals(Object other) const
+    Type getUnsigned() const
     {
-        auto otherTy = cast(Type)other;
-        
-        if (otherTy is null)
-            return false;
-
-        return kind == otherTy.kind;
+        assert(isSigned());
+        switch (kind)
+        {
+            case SCHAR: return (isconst ? ucharType.getConst() : ucharType);
+            case SHORT: return (isconst ? ushortType.getConst() : ushortType);
+            case INT:   return (isconst ? uintType.getConst() : uintType);
+            case LONG:  return (isconst ? ulongType.getConst() : ulongType);
+            case LLONG: return (isconst ? ullongType.getConst() : ullongType);
+            default: assert(0);
+        }
     }
 
-    /// Qualifier string.
-    string qualString() const
+    bool isSigned() const
     {
-        string[] quals;
+        return (
+            (kind == SCHAR) ||
+            (kind == SHORT) ||
+            (kind == INT)   ||
+            (kind == LONG)  ||
+            (kind == LLONG));
+    }
 
-        if (qual & QUAL_CONST)
+    Type getSigned() const
+    {
+        assert(isUnsigned());
+        switch (kind)
         {
-            quals ~= "const";
+            case UCHAR:     return (isconst ? scharType.getConst() : scharType);
+            case USHORT:    return (isconst ? shortType.getConst() : shortType);
+            case UINT:      return (isconst ? intType.getConst() : intType);
+            case ULONG:     return (isconst ? longType.getConst() : longType);
+            case ULLONG:    return (isconst ? llongType.getConst() : llongType);
+            default:
+                assert(0);
         }
+    }
 
-        if (qual & QUAL_REG)
-        {
-            quals ~= "register";
-        }
+    bool isInteger() const { return (isSigned() || isUnsigned() || (kind == BOOL_)); }
+    bool isPointer() const { return (kind == PTR);}
+    bool isArray() const { return (kind == ARRAY); }
+    bool isStruct() const { return (kind == STRUCT); }
+    bool isFunction() const { return (kind == FUNC); }
 
-        if (quals.empty)
-            return "";
+    StructFields fields() { assert(0, "not struct type"); }
+    Type ret() { assert(0, "not func type"); }
+    Type[] params() { assert(0, "not func type"); }
+    bool varArgs() { assert(0, "not func type"); }
+    Type base() { assert(0, "not ptr/array type"); }
 
-        return quals.join(" ");
+    PtrType makePointer()
+    {
+        return new PtrType(PTR, this);
+    }
+
+    PtrType makeArray(ulong n)
+    {
+        assert(!isFunction(), "cannot make array of function type");
+
+        return new PtrType(ARRAY, this, n);
+    }
+
+    /// p 6.2.5 10, 11
+    /// Floating point.
+    /// Note we're only supporting real FP types.
+    bool isFP() const
+    {
+        return (
+            (kind == FLOAT) ||
+            (kind == DOUBLE));
+    }
+
+    /// p 6.2.5 17
+    /// Integer or FP.
+    bool isReal() const
+    {
+        return (
+            isInteger() ||
+            isFP());
+    }
+
+    /// p 6.2.5 18
+    /// Integer and FP types are collectively 
+    /// called arithmetic types.
+    alias isArithmetic = isReal;
+
+    /// p 6.2.5 21 Scalar type.
+    /// Arithmetic types and pointer types are
+    /// collectively called scalar types.
+    bool isScalar() const
+    {
+        return (
+            isArithmetic() ||
+            (cast(PtrType)this !is null)
+        );
+    }
+
+    /// Returns whether they're the same type ignoring qualifiers(isconst).
+    bool isSame(Type type) const
+    {
+        return kind == type.kind;
     }
 
     override string toString() const
     {
-        string result;
-        if (!qualString().empty())
-            result ~= qualString() ~ " ";
-
         switch (kind)
         {
-            case VOID:      return result ~= "void";
-            case BOOL_:     return result ~= "Bool_";
-            case CHAR:      return result ~= "char";
-            case SCHAR:     return result ~= "signed char";
-            case SHORT:     return result ~= "short";
-            case INT:       return result ~= "int";
-            case LONG:      return result ~= "long";
-            case LLONG:     return result ~= "long long";
-            case FLOAT:     return result ~= "float";
-            case UCHAR:     return result ~= "unsigned char";
-            case USHORT:    return result ~= "unsigned short";
-            case UINT:      return result ~= "unsigned";
-            case ULONG:     return result ~= "unsigned long";
-            case ULLONG:    return result ~= "unsigned long long";
-            case DOUBLE:    return result ~= "double";
-            case DERV:      return result ~= "derived";
+            case PLACE_HOLDER:  return "placeholder";
+            case VOID:      return "void";
+            case BOOL_:     return "Bool_";
+            case CHAR:      return "char";
+            case SCHAR:     return "signed char";
+            case SHORT:     return "short";
+            case INT:       return "int";
+            case LONG:      return "long";
+            case LLONG:     return "long long";
+            case FLOAT:     return "float";
+            case UCHAR:     return "unsigned char";
+            case USHORT:    return "unsigned short";
+            case UINT:      return "unsigned";
+            case ULONG:     return "unsigned long";
+            case ULLONG:    return "unsigned long long";
+            case DOUBLE:    return "double";
             default:
                 return "";
         }
     }
 }
 
-/// Signed integer?
-bool isSigned(const Type type)
+/// Represent fields/members of a struct.
+class StructFields
 {
-    return (
-        (type.kind == Type.SCHAR) ||
-        (type.kind == Type.SHORT) ||
-        (type.kind == Type.INT)   ||
-        (type.kind == Type.LONG)  ||
-        (type.kind == Type.LLONG));
-}
+    private Type[string] kv;
+    string[] names;
 
-/// Unsigned integer?
-bool isUnsigned(const Type type)
-{
-    return (
-        (type.kind == Type.UCHAR) ||
-        (type.kind == Type.USHORT) ||
-        (type.kind == Type.UINT)   ||
-        (type.kind == Type.ULONG)  ||
-        (type.kind == Type.ULLONG));
-}
-
-/// Get unsigned version.
-Type getUnsigned(const Type type)
-{
-    assert(isSigned(type));
-
-    switch (type.kind)
+    this() {}
+    this(Type[string] kv, string[] names)
     {
-        case Type.SCHAR:    return ucharType;
-        case Type.SHORT:    return ushortType;
-        case Type.INT:      return uintType;
-        case Type.LONG:     return ulongType;
-        case Type.LLONG:    return ullongType;
-        default:
-            assert(false);
+        this.kv = kv;
+        this.names = names;
     }
-}
 
-/// Get signed version.
-Type getSigned(const Type type)
-{
-    assert(isUnsigned(type));
-
-    switch (type.kind)
+    StructFields dup()
     {
-        case Type.UCHAR:     return scharType;
-        case Type.USHORT:    return shortType;
-        case Type.UINT:      return intType;
-        case Type.ULONG:     return longType;
-        case Type.ULLONG:    return llongType;
-        default:
-            assert(false);
+        return new StructFields(kv.dup, names.dup);
     }
-}
 
-/// Integer?
-bool isInteger(const Type type)
-{
-    return (isSigned(type) || isUnsigned(type) || (type == boolType));
-}
-
-/// p 6.3.1.1 1
-/// Integer rank.
-uint8_t intRank(const Type type)
-{
-    assert(isInteger(type));
-
-    switch (type.kind)
+    ulong length() const
     {
-        case Type.BOOL_:                        return 0;
-        case Type.CHAR, Type.SCHAR, Type.UCHAR: return 1;
-        case Type.SHORT, Type.USHORT:           return 2;
-        case Type.INT, Type.UINT:               return 3;
-        case Type.LONG, Type.ULONG:             return 4;
-        case Type.LLONG, Type.ULLONG:           return 5;
-        default:
-            assert(false);
+        return kv.length;
     }
-}
 
-/// Max value of an integer type.
-long intMaxVal(const Type type)
-{
-    assert(isInteger(type));
-
-    switch (type.kind)
+    /// Add a field/member.
+    void add(Type type, string name)
     {
-        case Type.BOOL_:                return 1;
-        case Type.CHAR, Type.UCHAR:     return uint8_t.max;
-        case Type.SCHAR:                return int8_t.max;
-        case Type.SHORT:                return short.max;
-        case Type.USHORT:               return ushort.max;
-        case Type.INT:                  return int.max;
-        case Type.UINT:                 return uint.max;
-        case Type.LONG:                 return long.max;
-        case Type.ULONG:                return ulong.max;
-        case Type.LLONG:                return long.max;
-        case Type.ULLONG:               return ulong.max;
-        default:
-            assert(false);
+        assert((name in kv) is null);
+
+        names ~= name;
+        kv[name] = type;
+    }
+
+    Type get(string name)
+    {
+        if (name in kv)
+            return kv[name];
+        return null;
+    }
+
+    const(Type) get(string name) const
+    {
+        if (name in kv)
+            return kv[name];
+        return null;
     }
 }
 
-/// p 6.2.5 10, 11
-/// Floating point.
-/// Note we're only supporting real FP types.
-bool isFP(const Type type)
+/// Represent struct or union type.
+class StructType : Type
 {
-    return (
-        (type.kind == Type.FLOAT) ||
-        (type.kind == Type.DOUBLE));
-}
-
-/// p 6.2.5 17
-/// Integer or FP.
-bool isReal(const Type type)
-{
-    return (
-        isInteger(type) ||
-        isFP(type)
-    );
-}
-
-/// p 6.2.5 18
-/// Integer and FP types are collectively 
-/// called arithmetic types.
-alias isArithmetic = isReal;
-
-/// p 6.2.5 21 Scalar type.
-/// Arithmetic types and pointer types are
-/// collectively called scalar types.
-bool isScalar(const Type type)
-{
-    return (
-        isArithmetic(type) ||
-        (cast(PtrType)type)
-    );
-}
-
-/// Struct or Union type
-class RecType : Type
-{
-    /// Used for denoting anonymous RecType.
-    static ulong anonId = 0;
-
-    /// Name of the struct.
-    string name;
-
-    /// Field type.
-    struct Field {
-        /// Type of the field.
-        Type type;
-
-        /// Name of the field.
-        string name;
-
-        /// Offset from the beginning address.
-        size_t offset;
-
-        /// Constructor.
-        this(Type type, string name, size_t offset = 0)
-        {
-            this.type = type;
-            this.name = name;
-            this.offset = offset;
-        }
-    }
-
-    /// Whether this is a union type.
     bool isUnion;
+    /// Fields/members.
+    StructFields fields_;
 
-    /// Member names and types.
-    Field[] members;
-
-    /// Constructor.
-    private this(
-        string name, 
-        Field[] members, 
-        bool isUnion = false, 
-        uint8_t qual = 0)
+    this(StructFields fields, ulong size, bool isUnion, bool isconst = false)
     {
-        // A name will be assigned even for an anonymous
-        // struct/union.
-        assert(name !is null);
-        super(DERV, qual);
+        super(STRUCT, size, isconst);
 
-        this.name = name;
-        this.members = members;
         this.isUnion = isUnion;
-
-        if (this.members !is null)
-            assert(checkMembersComplete(), "Field has incomplete type");
+        this.fields_ = fields;
     }
 
-    private bool checkMembersComplete()
+    override StructType dup()
     {
-        foreach (m; members)
-        {
-            if (!m.type.isComplete())
-                return false;
-        }
-        return true;
-    }
-
-    /// Returns the member of [name]. If [name] does
-    /// not exist, returns dummy Field instance whose type is null.
-    const(Field) member(string name) const
-    {
-        foreach (m; members)
-        {
-            if (m.name == name)
-                return m;
-        }
-        
-        return Field(null, null, -1);
-    }
-
-    override ulong typeSize() const
-    {
-        if (members is null)
-            return -1;
-
-        if (members.length == 0)
-            return 0;
-
-        if (isUnion)
-        {
-            ulong max = 0;
-            foreach (m; members)
-            {
-                if (m.type.typeSize > max)
-                    max = m.type.typeSize;
-            }
-            return max;
-        }
-
-        auto lmember = members[$ - 1];
-        return lmember.offset + lmember.type.typeSize();
+        return new StructType(fields_.dup, size, isStruct, isconst);
     }
 
     override bool isComplete() const
     {
-        return (members !is null);
-    }
-
-    override size_t toHash() const
-    {
-        size_t hash = 1;
-        
-        foreach (m; members)
-        {
-            hash *= m.type.toHash;
-        }
-        return hash;
-    }
-
-    override bool opEquals(Object other) const
-    {
-        auto rec = cast(RecType)other;
-
-        if (rec is null)
-            return false;
-
-        if (name != rec.name)
-            return false;
-
-        foreach (i, m; members)
-        {
-            if (m != rec.members[i])
-                return false;
-        }
-        return true;
+        return (fields_ && (size != -1));
     }
 
     override string toString() const
     {
-        if (!qualString().empty())
-            return qualString() ~ (isUnion ? " union " : " struct ") ~ name;
-        return (isUnion ? "union " : "struct ") ~ name;
+        auto s = appender!string();
+
+        s.put(isStruct ? "(struct " : "(union ");
+        foreach (string name; fields_.names)
+        {
+            s.put(format!"(%s %s)"(fields_.get(name), name));
+        }
+        s.put(")");
+        return s.data;
+    }
+
+    override StructFields fields()
+    {
+        return fields_;
+    }
+
+    override bool isSame(Type type) const
+    {
+        StructType stype = cast(StructType)type;
+        if (!stype)
+            return false;
+
+        if (stype.isUnion != isUnion)
+            return false;
+
+        if (stype.fields_.length() != fields_.length())
+            return false;
+
+        for (int i = 0; i < fields_.length(); i++)
+        {
+            const(Type) a = this.fields_.get(this.fields_.names[i]);
+            Type b = cast(Type)stype.fields_.get(stype.fields_.names[i]);
+            if (!a.isSame(b))
+                return false;
+        }
+        return true;
     }
 }
 
-/// Access to Field constructor.
-alias RecField = RecType.Field;
-
-/// Function type.
+/// Represent function type.
 class FuncType : Type
 {
-    /// Return type.
-    const Type retType;
+    Type ret_;
+    Type[] params_;
+    bool varArgs_;
 
-    /// Param types.
-    const Type[] params;
-
-    /// Constructor.
-    private this(const Type retType, const Type[] params)
+    this(Type ret, Type[] params, bool varArgs = false)
     {
-        super(DERV, 0);
+        super(FUNC, 1, true);
 
-        this.retType = retType;
-        this.params = params;
+        this.ret_ = ret;
+        this.params_ = params;
+        this.varArgs_ = varArgs;
     }
 
-    override ulong typeSize() const
+    override FuncType dup()
     {
-        return PTR_SIZE;
+        return new FuncType(ret_.dup, params.dup, varArgs);
     }
 
-    override size_t toHash() const
+    override Type ret()
     {
-        size_t hash = retType.toHash();
-        
-        foreach (p; params)
-        {
-            hash *= p.toHash();
-        }
-        return hash;
+        return ret_;
     }
 
-    override bool opEquals(Object other) const
+    override Type[] params()
     {
-        auto func = cast(FuncType)other;
-
-        if (func is null)
-            return false;
-
-        if (func.retType != retType)
-            return false;
-
-        foreach (i, p; params)
-        {
-            if (func.params[i] != p)
-                return false;
-        }
-
-        return true;
+        return params_;
     }
 
-    private string paramString() const
+    override bool varArgs()
+    {
+        return varArgs_;
+    }
+
+    override string toString() const
     {
         auto ap = appender!string();
-        
-        ap.put("(");
-        foreach (i, p; params)
+
+        ap.put(format!"%s ("(ret_));
+        foreach (i, p; params_)
         {
-            if ((i + 1) == params.length)
-            {
-                ap.put(p.toString());
-            }
-            else
-            {
-                ap.put(p.toString() ~ ",");
-            }
+            ap.put(p.toString());
+            if (i + 1 != params_.length)
+                ap.put(",");
         }
         return ap.data ~ ")";
     }
 
-    override string toString() const
-    {
-        return format!"%s%s"(
-            retType.toString(),
-            paramString()
-        );
-    }
+    /// Function pointers are always the same.
 }
 
-/// Array type.
-class ArrayType : Type
-{
-    /// Type of the element.
-    const Type elemTy;
-
-    /// Size of the array.
-    long size;
-
-    /// Constructor.
-    /// When the [size] is not known yet. [size] should be set to
-    /// -1.
-    private this(const Type elemTy, long size, uint8_t qual = 0)
-    {
-        super(DERV, qual);
-
-        this.elemTy = elemTy;
-        this.size = size;
-    }
-
-    /// Whether this is a complete array type.
-    override bool isComplete() const 
-    {
-        return size != -1;
-    }
-
-    override ulong typeSize() const
-    {
-        assert(size != -1);
-        return elemTy.typeSize() * size;
-    }
-
-    override size_t toHash() const
-    {
-        return elemTy.toHash() * size;
-    }
-
-    override bool opEquals(Object other) const
-    {
-        auto arr = cast(ArrayType)other;
-
-        if (arr is null)
-            return false;
-
-        if ((elemTy != arr.elemTy) || (size != size))
-            return false;
-
-        return true;
-    }
-
-    override string toString() const
-    {
-        // Array of FuncType ptrs.
-        if (auto ptrType = cast(PtrType)elemTy)
-        {
-            if (auto funcType = cast(FuncType)ptrType.base)
-            {
-                return format!"%s(*%s[%s])%s"(
-                    funcType.retType.toString(),
-                    ptrType.qualString(),
-                    size,
-                    funcType.paramString()
-                );
-            }
-        }
-
-        return format!"%s[%s]"(elemTy.toString, size);
-    }
-}
-
-/// Pointer type.
+/// Represent pointer and array type.
 class PtrType : Type
 {
-    /// Pointee type.
-    const Type base;
+    Type base_;
 
-    /// Constructor.
-    private this(const Type base, uint8_t qual = 0)
+    /// [n] is the number of elements.
+    this(Kind kind, Type base, ulong n = -1, bool isconst = false)
     {
-        super(DERV, qual);
+        assert(kind == PTR || kind == ARRAY);
+        super(kind, (kind == PTR ? PTR_SIZE : n * base.size), isconst);
 
-        this.base = base;
+        this.base_ = base;
     }
 
-    override ulong typeSize() const
+    override PtrType dup()
     {
-        return PTR_SIZE;
+        return new PtrType(kind, base_.dup, size == PTR_SIZE ? -1 : size / base_.size, isconst);
     }
 
-    override size_t toHash() const
+    override Type base()
     {
-        return base.toHash() * DERV;
+        return base_;
     }
 
-    override bool opEquals(Object other) const
+    override bool isComplete() const
     {
-        auto ptr = cast(PtrType)other;
+        if (kind == PTR)
+            return true;
 
-        if (ptr is null)
-            return false;
-
-        if (base != ptr.base)
-            return false;
-
-        return true;
+        return size > 0;
     }
 
     override string toString() const
     {
-        // Ptr to FuncType.
-        auto funcType = cast(FuncType)base;
-        if (funcType)
+        if (kind == ARRAY)
         {
-            return format!"%s(*%s)%s"(
-                funcType.retType,
-                qualString(),
-                funcType.paramString()
-            );
+            return size == -1 ? "[]" ~ base_.toString() : format!"[%s]%s"(size, base_);
         }
+        return format!"*%s"(base_);
+    }
 
-        // Ptr to ArrayType.
-        auto arrayType = cast(ArrayType)base;
-        if (arrayType)
+    override bool isSame(Type type) const
+    {
+        if (isPointer() && type.isPointer())
+            return base_.isSame(type.base());
+
+        if (isArray() && type.isArray())
         {
-            return format!"%s(*%s)[%s]"(
-                arrayType.elemTy,
-                qualString(),
-                arrayType.size
-            );
+            if (this.size != type.size)
+                return false;
+            return base_.isSame(type.base());
         }
-
-        return base.toString() ~ "*" ~ qualString();
+        return false;
     }
 }
 
 /// Primitive types
-__gshared Type voidType   = new Type(Type.VOID);
-__gshared Type boolType   = new Type(Type.BOOL_);
-__gshared Type charType   = new Type(Type.CHAR);
-__gshared Type scharType  = new Type(Type.SCHAR);
-__gshared Type shortType  = new Type(Type.SHORT);
-__gshared Type intType    = new Type(Type.INT);
-__gshared Type longType   = new Type(Type.LONG);
-__gshared Type llongType  = new Type(Type.LLONG);
-__gshared Type ucharType  = new Type(Type.UCHAR);
-__gshared Type ushortType = new Type(Type.USHORT);
-__gshared Type uintType   = new Type(Type.UINT);
-__gshared Type ulongType  = new Type(Type.ULONG);
-__gshared Type ullongType = new Type(Type.ULLONG);
-__gshared Type floatType  = new Type(Type.FLOAT);
-__gshared Type doubleType = new Type(Type.DOUBLE);
+__gshared Type voidType   = new Type(Type.VOID, 1);
+__gshared Type boolType   = new Type(Type.BOOL_, 1);
+__gshared Type charType   = new Type(Type.CHAR, 1);
+__gshared Type scharType  = new Type(Type.SCHAR, 1);
+__gshared Type shortType  = new Type(Type.SHORT, 2);
+__gshared Type intType    = new Type(Type.INT, 4);
+__gshared Type longType   = new Type(Type.LONG, 8);
+__gshared Type llongType  = new Type(Type.LLONG, 8);
+__gshared Type ucharType  = new Type(Type.UCHAR, 1);
+__gshared Type ushortType = new Type(Type.USHORT, 2);
+__gshared Type uintType   = new Type(Type.UINT, 4);
+__gshared Type ulongType  = new Type(Type.ULONG, 8);
+__gshared Type ullongType = new Type(Type.ULLONG, 8);
+__gshared Type floatType  = new Type(Type.FLOAT, 4);
+__gshared Type doubleType = new Type(Type.DOUBLE, 8);
 
-/// Derived type store.
-private Type[string] dvtypes;
-
-/// Qualified type store.
-private Type[string] qtypes;
-
-/// Enumerations.
-private Type[string] entypes;
-
-static this()
-{
-    // Create basic pointer types.
-    getPtrType(voidType  );
-    getPtrType(boolType  );
-    getPtrType(charType  );
-    getPtrType(shortType );
-    getPtrType(intType   );
-    getPtrType(longType  );
-    getPtrType(llongType );
-    getPtrType(ucharType );
-    getPtrType(ushortType);
-    getPtrType(uintType  );
-    getPtrType(ulongType );
-    getPtrType(ullongType);
-    getPtrType(floatType );
-    getPtrType(doubleType);
-}
-
-/// TODO: rename this to getDerivedUnqual.
-/// If the type represented by [tystr] is in the derived type
-/// store, return it. Otherwise call [ctor] to create the type
-/// represented by [tystr].
-private T getDerivedType(T)(string tystr, T delegate() ctor)
-{
-    debug import std.stdio : writefln;
-
-    if (tystr in dvtypes)
-    {
-        auto ty = cast(T)(dvtypes[tystr]);
-        assert(ty !is null);
-
-        debug writefln(
-            "Get %s: \"%s\"", 
-            T.stringof, 
-            ty,
-            tystr
-        );
-        return ty;
-    }
-
-    auto ty = ctor();
-    dvtypes[tystr] = ty;
-    assert(ty.toString() == tystr);
-
-    debug writefln(
-        "Added \"%s: %s\"", 
-        T.stringof, 
-        ty,
-        tystr
-    );
-    return ty;
-}
-
-/// Remove a type from [dvtypes].
-void removeType(string tystr)
-{
-    dvtypes.remove(tystr);
-}
-
-/// This is simply a meaningless placeholder.
-private string __preRecTypeStr;
-
-/// [name] is the tag optional identifier in struct declaration.
-/// For anonymous struct, [name] is "".
-/// if [name] exists in [dvtypes], return it.
-/// Otherwise create an incomplete RecType for [name].
-RecType getRecType(
-    string name, 
-    out string tystr = __preRecTypeStr, 
-    bool isUnion = false)
-{
-    if (name == "")
-    {
-        name = format!"anon%s"(RecType.anonId++);
-    }
-
-    tystr = new RecType(name, null, isUnion).toString();
-    return getDerivedType!(RecType)(
-        tystr,
-        { return new RecType(name, null, isUnion); });
-}
-
-/// Ditto.
-RecType getRecType(
-    string name,
-    RecField[] fields, 
-    out string tystr = __preRecTypeStr,
-    bool isUnion = false)
-{
-    auto ty = getRecType(name, tystr, isUnion);
-
-    // Already complete or cannot be completed.
-    if ((ty.members !is null) || (!fields))
-    {
-        return ty;
-    }
-    // Create a complete version of it.
-    else
-    {
-        dvtypes.remove(tystr);
-        return getDerivedType!(RecType)(
-            tystr,
-            { return (isUnion ? makeUnionType(name, fields) : makeStrucType(name, fields)); });
-    }
-}
-
-/// Get or create an array type.
-ArrayType getArrayType(const Type elemTy, long size)
-{
-    auto astr = new ArrayType(elemTy, size).toString();
-    
-    return getDerivedType!(ArrayType)(
-        astr,
-        { return new ArrayType(elemTy, size); });
-}
-
-/// Get or create a function type.
-FuncType getFuncType(const Type retType, const Type[] params)
-{
-    auto fstr = new FuncType(retType, params).toString();
-    
-    return getDerivedType!(FuncType)(
-        fstr, 
-        { return new FuncType(retType, params); });
-}
-
-/// Get or create a pointer type.
-PtrType getPtrType(const Type base)
-{
-    auto ptrstr = new PtrType(base).toString();
-
-    return getDerivedType!(PtrType)(
-        ptrstr, 
-        { return new PtrType(base); });
-}
-
-/// Get qualified type of 'type'.
-Type getQualType(const Type type, uint8_t qual)
-{
-    Type resType;
-    auto recType = cast(RecType)type;
-    if (recType)
-    {
-        resType = new RecType(recType.name, recType.members, recType.isUnion, qual);
-    }
-
-    auto arrayType = cast(ArrayType)type;
-    if (arrayType)
-    {
-        resType = new ArrayType(arrayType.elemTy, arrayType.size, qual);
-    }
-
-    auto ptrType = cast(PtrType)type;
-    if (ptrType)
-    {
-        resType = new PtrType(ptrType.base, qual);
-    }
-
-    if (resType is null)
-    {
-        resType = new Type(type.kind, qual);
-    }
-
-    auto tystr = resType.toString();
-    if (tystr in qtypes)
-    {
-        return qtypes[tystr];
-    }
-
-    debug writefln("Added qual type: \"%s\"", resType);
-    qtypes[tystr] = resType;
-    return resType;
-}
-
-/// Get or create an enum type with [name].
-Type getEnumType(string name)
-{
-    if (name !in entypes)
-    {
-        entypes[name] = new Type(Type.ENUM, 0);
-    }
-
-    return entypes[name];
-}
-
-private RecType makeStrucType(
-    string strucName, 
-    RecField[] fields)
-{
-    // Find alignment.
-    ulong alig = 0;
-    foreach (f; fields)
-    {
-        if (f.type.typeSize() > alig)
-            alig = f.type.typeSize();
-    }
-
-    // Assign offsets.
-    ulong offset = 0;
-    ulong size = 0;
-    foreach (i, f; fields)
-    {
-        if (size + f.type.typeSize() < alig)
-        {
-            size += f.type.typeSize();
-        }
-
-        // Clear size.
-        else if (size + f.type.typeSize() == alig)
-        {
-            size = 0;
-        }
-
-        // Add padding.
-        else
-        {
-            offset += alig - size;
-            size = f.type.typeSize();
-        }
-
-        fields[i].offset = offset;
-        offset += f.type.typeSize();
-    }
-
-    return new RecType(strucName, fields);
-}
-
-private RecType makeUnionType(
-    string unionName, 
-    RecField[] fields)
-{
-    // Assign 0 to all offsets.
-    foreach (ref f; fields)
-    {
-        f.offset = 0;
-    }
-
-    return new RecType(unionName, fields, true);
-}
-
-/// Test makeStrucType and makeUnionType.
-unittest
-{
-    uniProlog();
-    RecType fooStrucType = makeStrucType(
-        "fooStruc",
-        [
-            RecField(intType, "foo"),
-            RecField(longType, "bar"),
-        ]
-    );
-
-    assert(fooStrucType.isUnion == false);
-    assert(fooStrucType.typeSize == 16);
-    assert(fooStrucType.members[0].type == intType);
-    assert(fooStrucType.members[0].offset == 0);
-    assert(fooStrucType.members[0].name == "foo");
-    assert(fooStrucType.members[1].type == longType);
-    assert(fooStrucType.members[1].offset == 8);
-    assert(fooStrucType.members[1].name == "bar");
-
-    RecType barUnionType = makeUnionType(
-        "barUnion",
-        [
-            RecField(longType, "foo"),
-            RecField(intType, "bar")
-        ]
-    );
-    assert(barUnionType.isUnion);
-    assert(barUnionType.typeSize == 8);
-    assert(barUnionType.members[0].type == longType);
-    assert(barUnionType.members[0].offset == 0);
-    assert(barUnionType.members[1].type == intType);
-    assert(barUnionType.members[1].offset == 0);
-    uniEpilog();
-}
-
-/// Test Type constructor.
-unittest
-{
-    uniProlog();
-    /// These should be equal.
-    Type intPtr = new PtrType(intType);
-    Type intPtr2 = new PtrType(intType);
-    assert(intPtr == intPtr2);
-    assert(intPtr.toHash == intPtr2.toHash);
-
-    Type longPtr = new PtrType(longType);
-    Type struc = new RecType("fooStruc", [
-        RecField(longPtr, "foo", 0),
-        RecField(intType, "bar", 8),
-    ]);
-    Type struc2 = new RecType("fooStruc", [
-        RecField(longPtr, "foo", 0),
-        RecField(intType, "bar", 8),
-    ]);
-    Type struc3 = new RecType("foo2Struc", [
-        RecField(longPtr, "foo2", 0),
-        RecField(intType, "bar2", 8),
-    ]);
-    assert(struc == struc2);
-    assert(struc.toHash() == struc2.toHash());
-    assert(struc3 != struc);
-    assert(struc.toHash() == struc3.toHash());
-
-    Type intarr = new ArrayType(intType, 10);
-    Type intarr2 = new ArrayType(intType, 10);
-    assert(intarr == intarr2);
-    assert(intarr.toHash() == intarr2.toHash());
-    static assert(is (typeof(intPtr) : Type));
-    uniEpilog();
-}
-
-/// Test toString
-unittest
-{
-    uniProlog();
-    assert(intType.toString == "int");
-
-    /// PtrType.
-    auto intPtrTy = new PtrType(intType);
-    assert(intPtrTy.toString == "int*");
-    auto intPtrPtrTy = new PtrType(intPtrTy);
-    assert(intPtrPtrTy.toString == "int**");
-
-    /// FuncType.
-    auto funcTy = new FuncType(voidType, [intPtrTy]);
-    assert(funcTy.toString == "void(int*)");
-
-    /// Ptr to array.
-    auto ptrToIntOfThree = new PtrType(
-        new ArrayType(intType, 3)
-    );
-    assert(ptrToIntOfThree.toString == "int(*)[3]");
-
-    /// Ptr to function.
-    auto ptrToFunc = new PtrType(
-        funcTy
-    );
-    assert(ptrToFunc.toString == "void(*)(int*)");
-
-    auto arrOfFunc = new ArrayType(
-        ptrToFunc,
-        3
-    );
-    assert(arrOfFunc.toString == "void(*[3])(int*)");
-
-    /// RecType.
-    auto fooStrucTy = makeStrucType(
-        "fooStruc",
-        [
-            RecField(intType, "foo"),
-            RecField(longType, "bar")
-        ]
-    );
-    assert(fooStrucTy.toString == "struct fooStruc");
-    auto barUnionTy = makeUnionType(
-        "barUnion",
-        [
-            RecField(intType, "foo"),
-            RecField(longType, "bar")
-        ]
-    );
-    assert(barUnionTy.toString == "union barUnion");
-    uniEpilog();
-}
-
-/// Test getXXXType.
-unittest
-{
-    uniProlog();
-    auto intPtrTy = getPtrType(intType);
-    assert(intPtrTy !is null);
-    assert(getPtrType(intType) == getPtrType(intType));
-
-    string fooStrucTyStr;
-    auto fooStrucTy = getRecType("fooStruc", fooStrucTyStr);
-    assert(fooStrucTy.members is null);
-    fooStrucTy = getRecType(
-        "fooStruc",
-        [
-            RecField(intType, "foo"),
-            RecField(longType, "bar"),
-        ],
-        fooStrucTyStr);
-    assert(fooStrucTy.members !is null);
-    assert(getRecType("fooStruc", fooStrucTyStr).members !is null);
-
-    auto fooStrucMems = getRecType("fooStruc").members;
-    assert(fooStrucMems[0].type == intType);
-    assert(fooStrucMems[0].name == "foo");
-    assert(fooStrucMems[1].type == longType);
-    assert(fooStrucMems[1].name == "bar");
-    uniEpilog();
-}
-
-/// Test qual.
-unittest
-{
-    uniProlog();
-    const constIntPtrTy = getQualType(intType, QUAL_CONST).getPtrType();
-    assert(constIntPtrTy.toString == "const int*");
-
-    const intConstPtrTy = intType.getPtrType().getQualType(QUAL_CONST);
-    assert(intConstPtrTy.toString == "int*const");
-
-    auto fooStrucTy = getRecType(
-        "fooStruc", 
-        [
-            RecField(intType, "foo"),
-            RecField(longType, "bar")
-        ]);
-    auto constFooStrucTy = fooStrucTy.getQualType(QUAL_CONST);
-    assert(constFooStrucTy.toString == "const struct fooStruc");
-
-    const constFooStrucTyPtr = constFooStrucTy.getPtrType();
-    assert(constFooStrucTyPtr.toString == "const struct fooStruc*");
-
-    const intPtrConstPtr = intType.getPtrType().getQualType(QUAL_CONST).getPtrType();
-    assert(intPtrConstPtr.toString == "int*const*");
-    uniEpilog();
-}
+/// NOTE: Treat all enum types as a single enum type.
+__gshared Type enumType   = new Type(Type.ENUM, 4);

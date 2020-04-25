@@ -12,6 +12,8 @@ import std.range;
 import std.regex;
 import std.string;
 
+import parser.ast : SrcLoc;
+
 /// Keywords that represent types.
 immutable string[] tkw = [
     // Type specifiers.
@@ -262,7 +264,7 @@ unittest {
 }
 
 /// Stream for reading chars from source code. 
-struct CharStream
+private struct CharStream
 {
     /// Input code.
     string code;
@@ -377,7 +379,7 @@ unittest {
 }
 
 /// Bookkeeping information for lexing errors.
-class LexingError : Error
+private class LexingError : Error
 {
     /// Reason that lexing fails.
     string msg;
@@ -410,7 +412,7 @@ class LexingError : Error
 }
 
 /// Wrapper around result tokens or error.
-struct LexingResult
+private struct LexingResult
 {
     /// Result tokens.
     Token[] tokens;
@@ -446,7 +448,7 @@ private bool alphaNumberic(char ch)
 }
 
 /// Takes a CharStream and lexes all tokens for this stream.
-LexingResult lexStream(ref CharStream chars)
+private LexingResult lexStream(ref CharStream chars)
 {
     // Token appender.
     auto tokens = appender!(Token[]);
@@ -829,7 +831,6 @@ struct TokenStream
     /// File name for the stream.
     string filename;
 
-    /// Constructor.
     this(string code, string filename)
     {
         auto chars = CharStream(code, filename);
@@ -873,6 +874,16 @@ struct TokenStream
     void unread()
     {
         idx--;
+    }
+
+    SrcLoc currLoc()
+    {
+        return SrcLoc(tokens[idx - 1].pos, filename);
+    }
+
+    SrcLoc nextLoc()
+    {
+        return SrcLoc(peek().pos, filename);
     }
 
     private bool matchStringval(Token.Kind kind, string val)

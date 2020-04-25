@@ -7,2226 +7,1215 @@ import std.stdint;
 import std.format;
 import std.algorithm;
 import std.range;
+import std.ascii;
+import core.stdc.stdlib : exit;
+
 import parser.ast;
 import parser.lexer;
 import parser.types;
-import sema.expr;
-import sema.env;
 import reporter;
-debug import std.stdio;
-debug import parser.ast_dumper;
 
-private T parseErrorImp(T)(ref TokenStream tokstr, string msg, SrcLoc loc)
+class Parser
 {
-    report(
-        SVR_ERR,
-        msg,
-        loc
-    );
+    TokenStream tokstr;
 
-    // Skip until a KW or semicolon is met.
-    for (;;)
+    /// Symbol table for faster lookups.
+    alias SymTable = Decl[string];
+    SymTable genv;
+    SymTable[] lenv;
+
+    SymTable symTable()
     {
-        auto tok = tokstr.peek();
-        if (
-            (compTokStr(tok, Token.SEP, ";")) ||
-            (tok.kind == Token.KW)            ||
-            (tok.kind == Token.EOF)
-        )
-        {
-            break;
-        }
-
-        tokstr.read();
+        if (lenv.length > 0)    return lenv[$ - 1];
+        return genv;
     }
 
-    return null;
-}
-
-/// Report parsing error and perform error recovery.
-private alias parseExprError = parseErrorImp!(Expr);
-
-/// Report parsing type error and perform error recovery.
-private alias parseTypeError = parseErrorImp!(Type);
-
-/// Consume a token and expect it to be a separator.
-private bool expectSep(ref TokenStream tokstr, string sep)
-{
-    if (!tokstr.matchSep(sep))
+    /// Resolve symbols from tables above.
+    Decl symResolve(string name)
     {
-        parseExprError(
-            tokstr,
-            format!"expected '%s'"(sep),
-            SrcLoc(tokstr.peek.pos, tokstr.filename)
-        );
+        int i = cast(int)lenv.length;
+        
+        for (i -= 1; i >= 0; i -= 1)
+        {
+            SymTable sym = lenv[i];
+            if (name in sym)
+                return sym[name];
+        }
+
+        return (name in genv) ? genv[name] : null;
+    }
+
+    /// AST nodes.
+    Decl[] toplevels;
+    Decl[] locals;
+
+    this(string code, string filename)
+    {
+        this.tokstr = TokenStream(code, filename);
+    }
+
+    /*
+    Error handling.
+    NOTE: I've chosen to avoid error recovery for this toy compiler simply
+    because it results to cleaner code.
+    */
+
+    private void parseError(string msg, SrcLoc loc = SrcLoc())
+    {
+        report(SVR_ERR, msg, loc == SrcLoc() ? tokstr.currLoc() : loc);
+        exit(-1);
+    }
+
+    private void expectSep(string sep)
+    {
+        if (!tokstr.matchSep(sep))
+            parseError(format!"expected '%s' but got '%s"(sep, tokstr.peek()));
+    }
+
+    private void ensureLvalue(Expr expr)
+    {
+        // identifier or member access.
+        if (cast(IdentExpr)expr || cast(MemberExpr)expr)
+            return;
+
+        // * operator.
+        if (auto unary = cast(UnaryExpr)expr)
+            if (unary.kind == UnaryExpr.DEREF)
+                return;
+
+        parseError("expected an lvalue", expr.loc);
+    }
+
+    private void ensureNotConst(Expr expr)
+    {
+        if (expr && !expr.type.isconst)
+            return;
+
+        parseError("unexpected const lvalue", expr.loc);
+    }
+
+    /// NOTE: expression with [dest] type should be a non-const lvalue.
+    private void ensureAssignable(Type dest, Type src)
+    {
+        if (dest.isScalar() && src.isScalar())
+            return;
+
+        if (src.isSame(dest))
+            return;
+
+        parseError(format!"incompatible type from '%s' to '%s'"(src, dest));
+    }
+
+    private Type ensureMember(Type type, string name)
+    {
+        if (type.isStruct())
+        {
+            if (type.fields.get(name))
+                return type.fields.get(name);
+
+            parseError(format!"member '%s' does not exist in type '%s'"(name, type));
+        }
+        parseError(format!"member reference base type '%s' is not a struct or union"(type));
+        assert(0);
+    }
+
+    /// 6.3 Type conversion.
+    /// Implicit array decay, function designator conversion, and integer promotion.
+    private Expr typeConv(Expr node)
+    {
+        if (!node)
+            return null;
+
+        Type type = node.type;
+
+        // Expression that has type ‘‘array of type’’ is converted
+        // to an expression with type ‘‘pointer to type’’ that points
+        // to the initial element of the array object and is not an lvalue.
+        // (Exceptions are the opnds of sizeof, &, and string literal used to initialize an array).
+        if (type.isArray())
+            return new UnaryExpr(UnaryExpr.DECAY, type.base().makePointer(), node, node.loc);
+
+        // Function designator with type ‘‘function returning type’’ is converted 
+        // to an expression that has type ‘‘pointer to function returning type’’.
+        // (Exceptions are the opnds of sizeof and &).
+        if (type.isFunction())
+            return new UnaryExpr(UnaryExpr.ADDR_OF, type.makePointer(), node, node.loc);
+
+        // If an int can represent all values of the original type, the value is converted 
+        // to an int; otherwise, it is converted to an unsigned int.
+        if (type.isSame(boolType) || type.isSame(charType) || type.isSame(shortType))
+            return new UnaryExpr(UnaryExpr.CAST, intType, node, node.loc);
+
+        return node;
+    }
+
+    /// 6.3.1.8 Usual arithmetic conversions.
+    private Type typeConvArith(Type a, Type b)
+    {
+        assert(a.isArithmetic() && b.isArithmetic(), "expected arithmetic types");
+
+        if (a.size < b.size)
+        {
+            Type tmp = a;
+            a = b;
+            b = tmp;
+        }
+
+        // Always convert to floating point number if needed.
+        if (a.isFP())
+            return a;
+
+        assert(a.isInteger() && b.isInteger(), "expected two integer types");
+
+        // If a and b are the same, no conversion is needed.
+        if (a.isSame(b))
+            return a;
+
+        // Return the one with larger size.
+        if (a.size > b.size)
+            return a;
+
+        assert(a.size == b.size, "internal error");
+
+        if ((a.isSigned() && b.isSigned()) || a.isUnsigned())
+            return a;
+        return a.getUnsigned();
+    }
+
+    /// Used in combination with [typeConvArith].
+    private Expr typeConvWrap(Expr node, Type type)
+    {
+        if (node.type.isSame(type))
+            return node;
+
+        return new UnaryExpr(UnaryExpr.CAST, type, node, node.loc);
+    }
+
+    private void ensurePointerBinop(string op)
+    {
+        if (op != "-" || op != ">" || op != "<" || 
+            op != ">=" || op != "<=" || op != "!=" || op != "==")
+            parseError("invalid pointer arithmetics");
+    }
+
+    private BinExpr createBinExpr(string op, Expr lhs, Expr rhs)
+    {
+        SrcLoc loc = lhs.loc;
+        // Both are pointers.
+        if (lhs.type.isPointer() && rhs.type.isPointer())
+        {
+            ensurePointerBinop(op);
+
+            if (op == "-")
+                return new BinExpr(ulongType, op, lhs, rhs, loc);
+
+            return new BinExpr(boolType, op, lhs, rhs, loc);
+        }
+
+        // One is pointer.
+        if (lhs.type.isPointer())
+            return new BinExpr(lhs.type, op, lhs, rhs, loc);
+        if (rhs.type.isPointer())
+            return new BinExpr(rhs.type, op, lhs, rhs, loc);
+
+        if (!lhs.type.isArithmetic() || !rhs.type.isArithmetic())
+            parseError("invalid binary operator", loc);
+
+        Type type = typeConvArith(lhs.type, rhs.type);
+        lhs = typeConvWrap(lhs, type);
+        rhs = typeConvWrap(rhs, type);
+        return new BinExpr(type, op, lhs, rhs, loc);
+    }
+
+    /**
+    Helpers for comparing token.stringVal
+    */
+
+    private static bool compTokStr(Token tok, int kind, string val)
+    {
+        return (tok.kind == kind) && (tok.stringVal == val);
+    }
+
+    private static bool isQualifier(Token tok)
+    {
+        return any!((val) => compTokStr(tok, Token.KW, val))(tqualkw);
+    }
+
+    private static bool isSpecifier(Token tok)
+    {
+        return any!((val) => compTokStr(tok, Token.KW, val))(tkw);
+    }
+
+    private static bool isStorageClassSpecifier(Token tok)
+    {
+        return any!((val) => compTokStr(tok, Token.KW, val))(sckw);
+    }
+
+    private bool isType(Token tok)
+    {
+        if (isSpecifier(tok) || isQualifier(tok) || isStorageClassSpecifier(tok))
+            return true;
+
+        if (tok.kind == Token.IDENT)
+        {
+            TypedefDecl tydef = cast(TypedefDecl)symResolve(tok.stringVal);
+            if (tydef)
+                return true;
+        }
         return false;
     }
-    return true;
-}
 
-/**
-Helpers for comparing token.stringVal
-*/
-
-private bool compTokStr(Token tok, int kind, string val)
-{
-    return (tok.kind == kind) && (tok.stringVal == val);
-}
-
-private bool isPostfixUOp(Token tok)
-{
-    auto pfx = ["++", "--", ".", "->", "[", "("];
-
-    return any!((val) => compTokStr(tok, Token.SEP, val))(pfx);
-}
-
-private bool isPrefixUOp(Token tok)
-{
-    auto uop = ["++", "--", "&", "*", "+", "-", "~", "!"];
-    auto isUop = any!((val) => compTokStr(tok, Token.SEP, val))(uop);
-
-    return (isUop || (tok.kind == Token.KW && tok.stringVal == "sizeof"));
-}
-
-private bool isAssignOp(Token tok)
-{
-    auto assignops = ["=", "*=", "/=", "%=", "+=", "-=", "<<=", ">>=", "&=", "^=", "|="];
-    return any!((op) => compTokStr(tok, Token.SEP, op))(assignops);
-}
-
-private bool isQualifier(Token tok)
-{
-    return any!((val) => compTokStr(tok, Token.KW, val))(tqualkw);
-}
-
-private bool isSpecifier(Token tok)
-{
-    return any!((val) => compTokStr(tok, Token.KW, val))(tkw);
-}
-
-private bool isStorageClassSpecifier(Token tok)
-{
-    return any!((val) => compTokStr(tok, Token.KW, val))(sckw);
-}
-
-/// NOTE: storage-class/function specifiers are handled separately.
-///
-/// declaration-specifiers
-///     | type-specifier declaration-specifiers?
-///     | type-qualifier declaration-specifiers?
-Type parseDeclSpecs(ref TokenStream tokstr)
-{
-    return parseSpecQualList(tokstr);
-}
-
-/// expr-stmt
-///     : expression? ";"
-Stmt parseExprStmt(ref TokenStream tokstr)
-{
-    auto loc = SrcLoc(tokstr.peek().pos, tokstr.filename);
-    if (tokstr.matchSep(";"))
+    /// 6.7.6 Type names
+    /// type-name:
+    ///     specifier-qualifier-list abstract-declarator.
+    private Type typeName()
     {
-        return new ExprStmt(null, loc);
+        return declarator(declSpec(), /* isAbstract */true);
     }
 
-    auto expr = parseExpr(tokstr);
-
-    expectSep(tokstr, ";");
-    return new ExprStmt(expr, loc);
-}
-
-/**
-
-Expressions.
-
-*/
-
-/// expression
-///     : assignment
-///     | expression "," assignment
-Expr parseExpr(ref TokenStream tokstr)
-{
-    auto exprs = [parseAssignment(tokstr)];
-    auto opLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
-
-    while (exprs[0] && tokstr.matchSep(","))
+    private struct ParamStruct
     {
-        if (auto expr = parseAssignment(tokstr))
+        string[] params;
+    }
+
+    private Type declarator(Type base, bool isAbstract, 
+                            string *name = null,
+                            ParamStruct *params = null)
+    {
+        if (tokstr.matchSep("*"))
         {
-            exprs ~= expr;
+            if (qualifiers() & Qualifier.CONST)
+                base = base.getConst();
+
+            return declarator(base.makePointer(), isAbstract, name, params);
+        }
+
+        if (tokstr.matchSep("("))
+        {
+            if (isType(tokstr.peek()) || tokstr.peekSep(")"))
+                // Start of function parameters list.
+                return declFunc(base, params);
+
+            Type tmp = base;
+            if (tokstr.peekSep("*"))
+                // Create a placeholder type because next call to declarator
+                // will return type of "pointer to placeholder".
+                tmp = new Type();
+
+            Type type = declarator(tmp, isAbstract, name, params);
+            expectSep(")");
+            Type result = declarator(base, isAbstract, name, params);
+            return (tmp == base) ? result : fillType(result, type);
+        }
+
+        if (tokstr.matchSep("["))
+            return declArray(base);
+
+        Token tok = tokstr.read();
+        if (tok.kind == Token.IDENT && isAbstract)
+            parseError(format!"unexpected identifier: %s"(tok.stringVal));
+
+        if (tok.kind == Token.IDENT && name)
+        {
+            if (*name)
+                parseError(format!"unexpected identifier: %s"(tok.stringVal));
+            *name = tok.stringVal;
         }
         else
-        {
-            break;
-        }
+            tokstr.unread();
+
+        return declarator(base, isAbstract, name, params);
     }
 
-    return semaCommaExpr(exprs, opLoc);
-}
-
-/// assignment
-///     : conditional-expr
-///     | unary assignment-op assignment
-Expr parseAssignment(ref TokenStream tokstr)
-{
-    auto expr = parseCondExpr(tokstr);
-
-    if (expr && tokstr.peek().isAssignOp())
+    /// FIXME: this is quite tricky because we'll have to change
+    /// the member of a type.
+    /// Fill a placeholder type in [result] with [type].
+    private Type fillType(Type result, Type type)
     {
-        auto optok = tokstr.read();
-        auto rhs = parseAssignment(tokstr);
-        if (!rhs)
+        if (result.isArray() || result.isPointer())
         {
-            return null;
+            if (result.base().kind != Type.PLACE_HOLDER)
+                return fillType(result.base(), type);
+
+            (cast(PtrType)result).base_ = type;
+            if (result.isArray())
+                result.size = result.size * type.size;
+            return result;
         }
-        expr = semaAssign(optok.stringVal, expr, rhs, SrcLoc(optok.pos, tokstr.filename));
+
+        assert(0, "go back and fix declarator().");
     }
 
-    return expr;
-}
-
-/// conditional-expr
-///     : logical-OR
-///     | logical-OR "?" expression ":" conditional-expr
-Expr parseCondExpr(ref TokenStream tokstr)
-{
-    auto expr = parseLogicalOR(tokstr);
-    auto opLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
-
-    if (expr && tokstr.matchSep("?"))
+    private Type declFunc(Type ret, ParamStruct *names)
     {
-        auto first = parseExpr(tokstr);
-        
-        // Only recurse when the syntax is correct.
-        if (expectSep(tokstr, ":"))
-        {
-            auto sec = parseCondExpr(tokstr);
-            expr = semaCondExpr(expr, first, sec, opLoc);
-        }
-    }
-    return expr;
-}
-
-/// Gen code for parsing binary.
-private string genParseBinary(
-    string opndParser,
-    string[] ops,
-    string semanAct,
-    string tokstr = "tokstr")
-{
-    assert(ops.length != 0);
-
-    // Condition string.
-    auto conds = map!(( op => tokstr ~ ".peekSep(\"" ~ op ~ "\")" ))(ops).array;
-    auto cond = join(conds, " || ");
-
-    return format!"
-    auto expr = %s(%s);
-
-    while (
-        expr && (%s)
-    )
-    {
-        auto optok = %s.read();
-        auto rhs = %s(tokstr);
-        if (!rhs)
-        {
-            // Abort on errors.
-            return null;
-        }
-
-        expr = %s(
-            optok.stringVal,
-            expr,
-            rhs,
-            SrcLoc(optok.pos, %s.filename)
-        );
+        return funcParams(ret, names);
     }
 
-    return expr;
-    "(
-        opndParser,
-        tokstr,
-        cond,
-        tokstr,
-        opndParser,
-        semanAct,
-        tokstr
-    );
-}
-
-/// logical-OR
-///     : logical-AND
-///     | logical-OR "||" logical-AND
-Expr parseLogicalOR(ref TokenStream tokstr)
-{
-    mixin(genParseBinary(
-        "parseLogicalN",
-        ["||"],
-        "semaLogical"
-    ));
-}
-
-/// logical-AND
-///     : bitwise-OR
-///     | logical-AND "&&" bitwise-OR
-Expr parseLogicalN(ref TokenStream tokstr)
-{
-    mixin(genParseBinary(
-        "parseBitwiseOR",
-        ["&&"],
-        "semaLogical"
-    ));
-}
-
-/// bitwise-OR
-///     : bitwise-XOR
-///     | btwise-OR "|" bitwise-XOR
-Expr parseBitwiseOR(ref TokenStream tokstr)
-{
-    mixin(genParseBinary(
-        "parseBitwiseXOR",
-        ["|"],
-        "semaBitwiseOp"
-    ));
-}
-
-/// bitwise-XOR
-///     : bitwise-AND
-///     | bitwise-XOR "^" bitwise-AND
-Expr parseBitwiseXOR(ref TokenStream tokstr)
-{
-    mixin(genParseBinary(
-        "parseBitwiseN",
-        ["^"],
-        "semaBitwiseOp"
-    ));
-}
-
-/// bitwise-AND
-///     : equality
-///     | bitwise-AND "&" equality
-Expr parseBitwiseN(ref TokenStream tokstr)
-{
-    mixin(genParseBinary(
-        "parseEquality",        /* opndParser */
-        ["&"],                  /* ops */
-        "semaBitwiseOp"          /* semantic action */
-    ));
-}
-
-/// equality
-///     : relational
-///     | quality "==" relational
-///     | equality "!=" relational
-Expr parseEquality(ref TokenStream tokstr)
-{
-    mixin(genParseBinary(
-        "parseRelational",      /* opndParser */
-        ["==", "!="],           /* ops */
-        "semaEqRel"             /* semantic action */
-    ));
-}
-
-/// relational
-///     : shift
-///     | relational ("<" | ">" | "<=" | ">=") shift
-Expr parseRelational(ref TokenStream tokstr)
-{
-    mixin(genParseBinary(
-        "parseShift",           /* opndParser */
-        ["<", ">", "<=", ">="], /* ops */
-        "semaEqRel"             /* semantic action */
-    ));
-}
-
-/// shift
-///     : additive
-///     | shift "<<" additive
-///     | shift ">>" additive
-Expr parseShift(ref TokenStream tokstr)
-{
-    mixin(genParseBinary(
-        "parseAdditive",        /* opndParser */
-        ["<<", ">>"],           /* ops */
-        "semaShift"             /* semantic action */
-    ));
-}
-
-/// additive
-///     : multiplicative
-///     | additive ("+"|"-") additive
-Expr parseAdditive(ref TokenStream tokstr)
-{
-    mixin(genParseBinary(
-        "parseMultiplicative",  /* opndParser */
-        ["+", "-"],             /* ops */
-        "semaAdd"               /* semantic action */
-    ));
-}
-
-/// multiplicative
-///     : cast
-///     | multiplicative ("*" | "/" | "%") multiplicative
-Expr parseMultiplicative(ref TokenStream tokstr)
-{
-    mixin(genParseBinary(
-        "parseCast",            /* opndParser */
-        ["*", "/", "%"],        /* ops */
-        "semaMult"              /* semantic action */
-    ));
-}
-
-/// cast
-///     : unary
-///     | "(" type-name ")" cast
-Expr parseCast(ref TokenStream tokstr)
-{
-    Expr castexpr;
-    SrcLoc lparenLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
-
-    if (tokstr.matchSep("("))
+    private Type funcParams(Type ret, ParamStruct *names)
     {
-        auto type = parseTypeName(tokstr);
-        if (!type)
+        bool varArgs = false;
+
+        if (ret.isFunction())
+            parseError("function returning function is not allowed");
+        if (ret.isArray())
+            parseError("function returning an array is not allowed");
+
+        if (tokstr.matchKW("void"))
         {
-            // Abort on errors.
-            return null;
+            expectSep(")");
+            return new FuncType(ret, null, false);
         }
 
-        if (!tokstr.expectSep(")"))
+        if (tokstr.matchSep(")"))
+            return new FuncType(ret, null, false);
+
+        Type[] params;
+        while (!tokstr.peekSep(")"))
         {
-            return null;
+            // TODO: add support for varArgs once we can
+            // recognize "..." token.
+            string name = null;
+            Type type = funcParam(&name);
+
+            if (name && names)
+                names.params ~= name;
+            params ~= type;
+
+            if (!tokstr.peekSep(")"))
+                expectSep(",");
         }
 
-        auto opnd = parseCast(tokstr);
-        if (!opnd)
-        {
-            // Abort on errors.
-            return null;
-        }
-
-        return semaCast(type, opnd, lparenLoc);
-    }
-    else
-    {
-        castexpr = parseUnary(tokstr);
+        expectSep(")");
+        return new FuncType(ret, params, varArgs);
     }
 
-    return castexpr;
-}
-
-/// unary
-///     : postfix
-///     | ("++" | "--") unary
-///     | uop unary
-///     | "sizeof" unary
-///     | "sizeof" '(' type-name ')'
-///       ^
-Expr parseUnary(ref TokenStream tokstr)
-{
-    if (tokstr.peek().isPrefixUOp())
+    /// Read a single parameter.
+    private Type funcParam(string *name)
     {
-        auto tokop = tokstr.read();
+        StorageClass sc;
+        // In case [type] itself is a function or pointer to function type,
+        // its parameter names are ignored.
+        Type type = declarator(declSpec(&sc), /* isAbstract */false, name);
 
-        // sizeof(int)
-        if (tokop.stringVal == "sizeof" && 
-            tokstr.peekSep("(") &&
-            (tokstr.peek(1).isQualifier() || tokstr.peek(1).isSpecifier())
-        )
+        if (sc != StorageClass.UNSPECIFIED && sc != StorageClass.REGISTER)
+            parseError("function parameter with storage class");
+
+        if (tokstr.peek().kind == Token.IDENT)
         {
-            auto lparenLoc = SrcLoc(tokstr.read().pos, tokstr.filename);
-            auto type = parseTypeName(tokstr);
-            if (!type)
+            Token tok = tokstr.read();
+
+            if (name && *name)
+                parseError(format!"unexpected identifier '%s'"(tokstr.peek().stringVal));
+            if (name)
+                *name = tok.stringVal;
+        }
+
+        if (type.isArray())
+            return type.base().makePointer();
+
+        if (type.isFunction())
+            return type.makePointer();
+
+        return type;
+    }
+
+    private Type declArray(Type base)
+    {
+        ulong len = -1;
+        if (!tokstr.matchSep("]"))
+        {
+            len = constInteger();
+            expectSep("]");
+        }
+
+        SrcLoc loc = tokstr.nextLoc();
+        Type type = declarator(base, false);
+        if (type.isFunction())
+            parseError("array of function", loc);
+
+        return type.makeArray(len);
+    }
+
+    private uint8_t qualifiers()
+    {
+        uint8_t qual = 0;
+
+        while (isQualifier(tokstr.peek()))
+            if (tokstr.read().stringVal == "const")
+                qual |= Qualifier.CONST;
+
+        return qual;
+    }
+
+    /// declaration-specifiers
+    ///     : storage-class-specifier declaration-specifiers-opt
+    ///     | type-specifier declaration-specifiers-opt
+    ///     | type-qualifier declaration-specifiers-opt
+    ///     | function-specifier declaration-specifiers-opt
+    private Type declSpec(StorageClass *sc_ = null)
+    {
+        StorageClass sc = StorageClass.UNSPECIFIED;
+        if (!isType(tokstr.peek()))
+            parseError("type specifier expected", tokstr.nextLoc());
+
+        Type type;
+        bool isconst = false;
+        bool isllong = false;
+        ulong size = 0;
+
+        void type_check() { if (type) parseError("two or more data types in declaration specifiers"); }
+        void storage_class_check()
+        {
+            if (sc != StorageClass.UNSPECIFIED)
+                parseError("two or more storage classes are specified");
+        }
+
+        while (isType(tokstr.peek()))
+        {
+            Token tok = tokstr.read();
+            switch (tok.stringVal)
             {
-                return null;
+                case "void": type_check(); type = voidType; break;
+                case "_Bool": type_check(); type = boolType; break;
+                case "char": type_check(); type = charType; break;
+                case "int": type_check(); type = intType; break;
+                case "float": type_check(); type = floatType; break;
+                case "double": type_check(); type = doubleType; break;
+                case "short": {
+                    if (size) 
+                        parseError("incompatible size of declaration specifiers"); 
+                    size = shortType.size;
+                    break;
+                }
+                case "long": {
+                    if (!size || size == intType.size)
+                        size = longType.size;
+                    else if (size == longType.size)
+                    {
+                        size = llongType.size;
+                        isllong = true;
+                    }
+                    else
+                        parseError("incompatible size of declaration specifiers");
+                    break;
+                }
+                case "unsigned": {
+                    if (!type)
+                        type = isllong ? ullongType : (size == longType.size) ? ulongType : uintType;
+                    else if (type.isSigned())
+                        type = type.getUnsigned();
+                    else
+                        parseError("incompatible declaration specifiers");
+                    break;
+                }
+                case "signed": {
+                    if (!type)
+                        type = isllong ? llongType : (size == longType.size) ? longType : intType;
+                    else if (type.isUnsigned())
+                        type = type.getSigned();
+                    else
+                        parseError("incompatible declaration specifiers");
+                    break;
+                }
+                case "struct": type_check(); type = declStruct(); break;
+                case "union": type_check(); type = declUnion(); break;
+                case "enum": type_check(); type = declEnum(); break;
+
+                case "extern": storage_class_check(); sc = StorageClass.EXTERN; break;
+                case "static": storage_class_check(); sc = StorageClass.STATIC; break;
+                case "auto": storage_class_check(); sc = StorageClass.AUTO; break;
+                case "register": storage_class_check(); sc = StorageClass.REGISTER; break;
+
+                case "const": isconst = true; break;
+                case "restrict": break;
+                case "inline": break;
+                case "volatile": break;
+                
+                case "typedef": // TODO.
+                default:
+                    assert(0, "internal error");
             }
-
-            if (!tokstr.expectSep(")"))
-            {
-                return null;
-            }
-
-            return new IntExpr(
-                ulongType,
-                type.typeSize(),
-                lparenLoc
-            );
         }
 
-        auto rhs = parseUnary(tokstr);
+        if (sc_)
+            *sc_ = sc;
 
-        // Handle parsing/semantic errors.
-        if (rhs is null)
-        {
-            return null;
-        }
+        if (type == voidType && (size != 0 || isconst))
+            parseError("incompatible declaration specifiers");
+        if ((type == floatType || type == charType || type == boolType) && size != 0)
+            parseError("incompatible declaration specifiers");
+        if (size == shortType.size && (type && type != intType && type != uintType))
+            parseError("incompatible declaration specifiers");
+        if (size == longType.size && 
+            (type && type.size != intType.size && type.size != longType.size))
+            parseError("incompatible declaration specifiers");
 
-        switch (tokop.stringVal)
-        {
-            case "++", "--":
-                return semaIncrDecr!"pre"(
-                    rhs, 
-                    tokop.stringVal, 
-                    SrcLoc(tokop.pos, tokstr.filename));
-            
-            case "sizeof":
-                // the opnd of "sizeof" operator is not evaluated.
-                return new IntExpr(
-                    ulongType, 
-                    rhs.type.typeSize,
-                    rhs.loc);
+        if (!type && size == shortType.size)
+            type = shortType;
 
-            case "&":
-                return semaAddrof(
-                    rhs, 
-                    SrcLoc(tokop.pos, 
-                    tokstr.filename));
+        if (!type && size == longType.size)
+            type = isllong ? llongType : longType;
 
-            case "*":
-                return semaDeref(rhs);
-
-            case "+", "-", "~", "!":
-                return semaUAOp(
-                    tokop.stringVal, 
-                    rhs, 
-                    SrcLoc(tokop.pos, tokstr.filename));
-
-            default:
-                assert(false);
-        }
-    }
-    // Descend to postfix.
-    else
-    {
-        return parsePostfix(tokstr);
-    }
-}
-
-/// postfix
-///     : primary operators*
-///     ^
-/// operators
-///     : increment-decrement-suffix operators*
-///     | rec-access operators*
-///     | call-and-subs operators*
-Expr parsePostfix(ref TokenStream tokstr)
-{
-    auto expr = parsePrimary(tokstr);
-
-    // Exhaust postfix operators.
-    while (expr && isPostfixUOp(tokstr.peek()))
-    {
-        switch (tokstr.peek().stringVal)
-        {
-            case "++", "--":    expr = parseIncrDecrSfx(tokstr, expr); break;
-            case ".", "->":     expr = parseMemberExpr(tokstr, expr); break;
-            case "[", "(":      expr = parseCallAndSubs(tokstr, expr); break;
-            default:
-                assert(false, "Not implemented");
-        }
-    }
-    return expr;
-}
-
-/// increment-decrement-suffix
-///     : ("++" | "--")+
-///       ^
-Expr parseIncrDecrSfx(ref TokenStream tokstr, Expr lhs)
-{
-    auto tok = tokstr.read();
-    assert(tok.kind == Token.SEP);
-    assert(tok.stringVal == "++" || tok.stringVal == "--");
-    assert(lhs);
-
-    while (
-        lhs &&
-        (tok.kind == Token.SEP) &&
-        (tok.stringVal == "++" || tok.stringVal == "--")
-    )
-    {
-        lhs = semaIncrDecr!"post"(lhs, tok.stringVal, SrcLoc(tok.pos, tokstr.filename));
-        tok = tokstr.read();
-    }
-    tokstr.unread();
-    return lhs;
-}
-
-/// member-expr
-///     : (('.' | '->') identifier)+
-///       ^
-Expr parseMemberExpr(ref TokenStream tokstr, Expr struc)
-{
-    auto tok = tokstr.read();
-    assert(tok.kind == Token.SEP);
-    assert(tok.stringVal == "." || tok.stringVal == "->");
-    assert(struc);
-
-    while (
-        struc &&
-        (tok.kind == Token.SEP) &&
-        (tok.stringVal == "." || tok.stringVal == "->")
-    )
-    {
-        // Read the identifier(member name).
-        auto tokIdent = tokstr.read();
-        if (tokIdent.kind != Token.IDENT)
-        {
-            return parseExprError(
-                tokstr,
-                "expect identifier",
-                SrcLoc(tokIdent.pos, tokstr.filename)
-            );
-        }
-
-        // Deref the pointer.
-        if (tok.stringVal == "->")
-        {
-            struc = semaDeref(struc);
-        }
-
-        // Stop the rest if deref error.
-        if (struc is null)
-        {
-            return null;
-        }
-
-        struc = semaMemberExpr(
-            struc, 
-            tokIdent.stringVal, 
-            SrcLoc(tokIdent.pos, tokstr.filename)
-        );
-
-        tok = tokstr.read();
+        return isconst ? type.getConst() : type;
     }
 
-    tokstr.unread();
-    return struc;
-}
-
-/// call-and-subs
-///     : ('[' expression ']' | '(' arg-list ')')+
-///       ^
-/// arg-list
-///     : assignment, arg-list
-Expr parseCallAndSubs(ref TokenStream tokstr, Expr lhs)
-{
-    auto tok = tokstr.read();
-
-    assert(lhs !is null);
-    assert(tok.kind == Token.SEP);
-    assert(tok.stringVal == "(" || tok.stringVal == "[");
-
-    Expr[] args;
-
-    while (
-        lhs &&
-        (tok.kind == Token.SEP) &&
-        ((tok.stringVal == "(") || 
-        (tok.stringVal == "["))
-    )
-    {
-        // Subscript
-        if (tok.stringVal == "[")
-        {
-            auto idx = parseExpr(tokstr);
-            lhs = semaDeref(lhs, idx);
-            expectSep(tokstr, "]");
-        }
-        // Call.
-        else
-        {   
-            // Exhaust the args.
-            while (!tokstr.matchSep(")"))
-            {
-                tokstr.expectSep(",");
-                auto arg = parseAssignment(tokstr);
-
-                // If error occurs during parseAssignment,
-                // stop parsing the rest args.
-                if (arg is null)
-                {
-                    return null;
-                }
-
-                args ~= arg;
-            }
-            lhs = semaCall(lhs, args, SrcLoc(tok.pos, tokstr.filename));
-        }
-
-        // Advance.
-        tok = tokstr.read();
-    }
-
-    tokstr.unread();
-    return lhs;
-}
-
-/// primary-expression
-///     : identifier
-///     | constant
-///     | string-literal
-///     | paren
-Expr parsePrimary(ref TokenStream tokstr)
-{
-    auto tok = tokstr.read();
-    auto loc = SrcLoc(tok.pos, tokstr.filename);
-
-    switch (tok.kind)
-    {
-        case Token.IDENT:   return semaIdent(tok.stringVal, loc);
-        case Token.INT:     return semaInt(tok.intVal, tok.intsfx, loc);
-        case Token.FLOAT:   return semaFloat(tok.floatVal, tok.fsfx, loc);
-        case Token.STRING:  return new StringExpr(tok.stringVal, loc);
-        case Token.SEP:
-            if (tok.stringVal != "(")
-            {
-                debug return parseExprError(
-                    tokstr,
-                    "parsePrimary: expect '('",
-                    SrcLoc(tok.pos, tokstr.filename)
-                );
-                return parseExprError(
-                    tokstr,
-                    "expect '('",
-                    SrcLoc(tok.pos, tokstr.filename)
-                );
-            }
-            return parseParen(tokstr);
-
-        default:
-            return parseExprError(
-                tokstr,
-                format!"unexpected token '%s'"(tok),
-                SrcLoc(tok.pos, tokstr.filename)
-            );
-    }
-}
-
-/// paren
-///     : "(" expr ")"                              - grouping.
-///     | "(" typename ")" "{" initializer-list "}" - compound literal.
-///           ^
-Expr parseParen(ref TokenStream tokstr)
-{
-    // Compound literal.
-    if (tokstr.peek().isSpecifier() || tokstr.peek().isQualifier())
-    {
-        SrcLoc typeLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
-
-        Type type = parseTypeName(tokstr);
-        if (!type)
-        {
-            // Abort on errors.
-            return null;
-        }
-
-        if (!tokstr.expectSep(")"))
-        {
-            return null;
-        }
-
-        if (!tokstr.expectSep("{"))
-        {
-            return null;
-        }
-
-        InitExpr init = parseInitList(tokstr, type, 0/* offset start from 0. */);
-        return semaCompLitExpr(type, init, typeLoc);
-    }
-    
-    return parseExpr(tokstr);
-}
-
-/// initializer-list
-///     : ( designator+ "=" )? initializer initializer-list
-///     | empty
-///
-/// designator
-///     : "[" constant-expr "]"
-///     | "." identifier
-///
-/// [type] is the type of the initializer, which appears to be an initializer-list.
-/// [offset] is needed because the parser maybe parsing nested initializer-list.
-InitExpr parseInitList(ref TokenStream tokstr, Type type, size_t offset)
-{
-    // Dummy head.
-    InitExpr initList = null;
-    InitExpr prevInit = null;
-
-    // Type and offset used in current level of initializer-list.
-    Type oldType = type;
-    size_t oldOffset = offset;
-
-    // Consume all initializer.
-    for (; !tokstr.matchSep("}") ;)
-    {
-        // Starting loc of the current designator(if any).
-        SrcLoc desLoc = SrcLoc(tokstr.peek().pos, tokstr.filename);
-
-        // Parse the current designator list(if any).
-        for (;;)
-        {
-            SrcLoc loc = SrcLoc(tokstr.peek().pos, tokstr.filename);
-
-            // Array designator.
-            if (tokstr.matchSep("["))
-            {
-                auto arrty = cast(ArrayType)type;
-                if (!arrty)
-                {
-                    return cast(InitExpr)parseExprError(
-                        tokstr,
-                        format!"array designator cannot initialize non-array type '%s'"(type),
-                        loc
-                    );
-                }
-
-                // Index value must be constant within a designator.
-                auto index = cast(IntExpr)parseAssignment(tokstr);
-                if (!index)
-                {
-                    return cast(InitExpr)parseExprError(
-                        tokstr,
-                        format!"expression must have a constant value",
-                        loc
-                    );
-                }
-
-                if (!tokstr.expectSep("]") || !semaCheckArrayDesg(arrty, oldType, index.value, loc))
-                {
-                    return null;
-                }
-
-                // Update type and offset.
-                type = cast(Type)arrty.elemTy;
-                offset += arrty.elemTy.typeSize() * index.value;
-            }
-
-            // Member designator.
-            else if (tokstr.matchSep("."))
-            {
-                auto recty = cast(RecType)type;
-                if (!recty)
-                {
-                    return cast(InitExpr)parseExprError(
-                        tokstr,
-                        format!"invalid designator type",
-                        loc
-                    );
-                }
-
-                auto tokident = tokstr.read();
-                if (tokident.kind != Token.IDENT)
-                {
-                    return cast(InitExpr)parseExprError(
-                        tokstr,
-                        "expect an identifier",
-                        loc
-                    );
-                }
-
-                if (!semaCheckMemberDesg(recty, tokident.stringVal, loc))
-                {
-                    return null;
-                }
-
-                // Update type and offset.
-                type = cast(Type)recty.member(tokident.stringVal).type;
-                offset += recty.member(tokident.stringVal).offset;
-            }
-
-            // Done parsing the current designator list.
-            else break;
-        }
-
-        // If there's a designator list, then an '=' sign must be present.
-        if (oldType != type && !tokstr.expectSep("="))
-        {
-            // Syntax error.
-            return null;
-        }
-
-        Expr val = parseInitializer(tokstr, type, offset);
-        if (!val)
-        {
-            // Parsing/sema error.
-            return null;
-        }
-
-        // Add new initializer to the initializer-list.
-        InitExpr currInit = cast(InitExpr)val !is null  /* If it is itself an initializer, we simply use it. */
-            ? cast(InitExpr)val
-            : new InitExpr(val, offset, desLoc);
-        if (!initList)
-        {
-            initList = currInit;
-            prevInit = currInit;
-        }
-        else
-        {
-            prevInit.next = currInit;
-        }
-
-        // Restore type and offset.
-        type = oldType;
-        offset = oldOffset;
-
-        if (!tokstr.peekSep("}") && !tokstr.expectSep(","))
-        {
-            // Syntax error
-            return null;
-        }
-    }
-
-    return initList;
-}
-
-/// initializer
-///     : assignment-expression
-///     | "{" initializer-list ","? "}"
-///       ^
-///
-/// [offset] might be non-zero when parseInitializer is called from parseInitList.
-/// It only matters when the next initializer to be parsed is itself another initializer-list.
-/// [type] is the type of the initializer.
-Expr parseInitializer(ref TokenStream tokstr, Type type, size_t offset)
-{
-    if (tokstr.matchSep("{"))
-    {
-        return parseInitList(tokstr, type, offset);
-    }
-
-    return parseAssignment(tokstr);
-}
-
-/// type-name
-///     : specifier-qualifier-list pointer?                         - Simple type name.
-///     | specifier-qualifier-list pointer? complex-type-name       - Complex type name.
-///     | specifier-qualifier-list pointer? "[" constant-expr "]"   - Array type name.
-///       ^
-Type parseTypeName(ref TokenStream tokstr)
-{
-    assert(tokstr.peek().isSpecifier() || tokstr.peek().isQualifier());
-    Type objtype = parseSpecQualList(tokstr);
-
-    // Abort when errors.
-    if (!objtype)
+    private Type declStruct()
     {
         return null;
     }
 
-    Type type = parsePtr(tokstr, objtype);
-
-    // Complex type name.
-    if (tokstr.peekSep("("))
+    private Type declUnion()
     {
-        return parseComplexTypeName(tokstr, type);
+        return null;
     }
-    // Array type name.
-    else if (tokstr.matchSep("["))
+
+    private Type declEnum()
     {
-        // Incomplete type.
-        if (tokstr.matchSep("]"))
+        return null;
+    }
+
+    private ulong constInteger()
+    {
+        return -1;
+    }
+
+    private Expr expr()
+    {
+        Expr node = comma();
+        if (!node)
+            parseError("expected an expression");
+        return node;
+    }
+
+    private Expr comma()
+    {
+        Expr[] exprs = [];
+        Expr expr = assignment();
+        while (tokstr.matchSep(","))
         {
-            return getArrayType(type, -1);
+            exprs ~= expr;
+            expr = assignment();
         }
 
-        auto asz = cast(IntExpr)parseAssignment(tokstr);
-        if (!asz)
+        if (exprs.length)
+            expr = new CommaExpr(exprs[$ - 1].type, exprs, exprs[0].loc);
+        return expr;
+    }
+
+    private Expr assignment()
+    {
+        Expr lhs = conditional();
+        Token tokop = tokstr.read();
+        SrcLoc loc = tokstr.currLoc();
+        string op = getCompoundAssignop(tokop);
+
+        if ((tokop.kind == Token.SEP && tokop.stringVal == "=") || op)
         {
-            return parseTypeError(
-                tokstr,
-                "array size must be determinable in compile time",
-                SrcLoc(tokstr.peek.pos, tokstr.filename)
-            );
+            Expr rhs = typeConv(assignment());
+            ensureLvalue(lhs);
+            ensureNotConst(lhs);
+
+            // If this is a compound assignment operator, we'll
+            // turn it into a binary expression + an assignment.
+            rhs = op ? createBinExpr(op, typeConv(lhs), rhs) : rhs;
+            // Implicit cast.
+            if (lhs.type.isArithmetic() && !rhs.type.isSame(lhs.type))
+                rhs = new UnaryExpr(UnaryExpr.CAST, lhs.type, rhs, rhs.loc);
+            else if (!lhs.type.isSame(rhs.type))
+                parseError("incompatible types", loc);
+
+            return new AssignExpr(lhs, rhs, loc);
         }
-        return getArrayType(type, asz.value);
+        tokstr.unread();
+        return lhs;
     }
-    // Simple type name.
-    else
+
+    private string getCompoundAssignop(Token tok)
     {
-        return type;
-    }
-}
-
-/// specifier-qualifier-list
-///     : type-specifier specifier-qualifier-list
-///     | type-qualifier specifier-qualifier-list
-Type parseSpecQualList(ref TokenStream tokstr)
-{
-    // Consume any prefix qulifiers.
-    uint8_t quals = parseQuals(tokstr);
-
-    // Type specifiers.
-    if (!tokstr.peek().isSpecifier())
-    {
-        return parseTypeError(
-            tokstr,
-            "expect type specifier",
-            SrcLoc(tokstr.peek().pos, tokstr.filename)
-        );
-    }
-    auto type = parseTypeSpecs(tokstr);
-
-    // Consume any postfix qualifiers.
-    quals |= parseQuals(tokstr);
-
-    return (quals == 0) ? type : getQualType(type, quals);
-}
-
-/// type-specifiers
-///     : basic-type-specifiers
-///     | aggregType-specifiers
-///     | enum-specifiers   - TODO.
-///     | typedef-name      - TODO.
-Type parseTypeSpecs(ref TokenStream tokstr)
-{
-    auto tokspec = tokstr.read();
-    assert(isSpecifier(tokspec));
-
-    switch (tokspec.stringVal)
-    {
-        case "_Bool":       return boolType;
-        case "char":        return charType;
-        case "short":
-            tokstr.matchKW("int");
-            return shortType;
-
-        case "int":         return intType;
-        case "signed":      return parseIntTypeSpec!"signed"(tokstr);
-        case "unsigned":    return parseIntTypeSpec!"unsigned"(tokstr);
-        case "long":
-            // long long (int)
-            if (tokstr.matchKW("long"))
+        if (tok.kind == Token.SEP)
+        {
+            switch (tok.stringVal)
             {
-                tokstr.matchKW("int");
-                return llongType;
+                case "+=":  return "+";
+                case "-=":  return "-";
+                case "*=":  return "*";
+                case "/=":  return "/";
+                case "%=":  return "%";
+                case "&=":  return "&";
+                case "|=":  return "|";
+                case "^=":  return "^";
+                case "<<=": return "<<";
+                case ">>=": return ">>";
+                default:
+                    return null;
             }
-            // long (int)
+        }
+        return null;
+    }
+
+    private Expr conditional()
+    {
+        Expr cond = logicalOr();
+
+        if (tokstr.matchSep("?"))
+        {
+            SrcLoc loc = tokstr.currLoc();
+            Expr then = typeConv(expr());
+            expectSep(":");
+            Expr _else = typeConv(conditional());
+
+            if (then.type.isArithmetic() && _else.type.isArithmetic())
+            {
+                Type type = typeConvArith(then.type, _else.type);
+                then = typeConvWrap(then, type);
+                _else = typeConvWrap(_else, type);
+            }
+            return new CondExpr(then.type, cond, then, _else, loc);
+        }
+        return cond;
+    }
+
+    private Expr logicalOr()
+    {
+        Expr lhs = logicalAnd();
+        while (tokstr.matchSep("||"))
+        {
+            SrcLoc loc = tokstr.currLoc();
+            lhs = new BinExpr(intType, "||", lhs, logicalAnd(), loc);
+        }
+
+        return lhs;
+    }
+
+    private Expr logicalAnd()
+    {
+        Expr lhs = bitwiseOr();
+        while (tokstr.matchSep("&&"))
+        {
+            SrcLoc loc = tokstr.currLoc();
+            lhs = new BinExpr(intType, "&&", lhs, bitwiseOr(), loc);
+        }
+
+        return lhs;
+    }
+
+    private Expr bitwiseOr()
+    {
+        Expr lhs = bitwiseExor();
+        while (tokstr.matchSep("|"))
+        {
+            Expr rhs = bitwiseExor();
+            lhs = createBinExpr("|", typeConv(lhs), typeConv(rhs));
+        }
+        return lhs;
+    }
+
+    private Expr bitwiseExor()
+    {
+        Expr lhs = bitwiseAnd();
+        while (tokstr.matchSep("^"))
+        {
+            Expr rhs = bitwiseAnd();
+            lhs = createBinExpr("^", typeConv(lhs), typeConv(rhs));
+        }
+        return lhs;
+    }
+
+    private Expr bitwiseAnd()
+    {
+        Expr lhs = equality();
+        while (tokstr.matchSep("&"))
+        {
+            Expr rhs = equality();
+            lhs = createBinExpr("&", typeConv(lhs), typeConv(rhs));
+        }
+        return lhs;
+    }
+
+    private Expr equality()
+    {
+        Expr lhs = relational();
+        Token tokop = tokstr.read();
+
+        for (;;)
+        {
+            if (tokop.kind == Token.SEP && (tokop.stringVal == "==" || 
+                tokop.stringVal == "!="))
+            {
+                Expr rhs = relational();
+                lhs = createBinExpr(tokop.stringVal, typeConv(lhs), typeConv(rhs));
+            }
             else
             {
-                return longType;
+                tokstr.unread();
+                return lhs;
             }
-
-        case "float":       return floatType;
-        case "double":      return doubleType;
-        case "void":        return voidType;
-        case "struct":      return parseStructTypeSpec(tokstr, false);
-        case "union":       return parseStructTypeSpec(tokstr, true);
-        
-        default:
-            assert(false);
-    }
-}
-
-/// type-qualifiers
-///     : "const" type-qualifiers*
-///     | "register" type-qualifiers*
-uint8_t parseQuals(ref TokenStream tokstr)
-{
-    uint8_t quals = 0;
-    auto tok = tokstr.read();
-
-    while (isQualifier(tok))
-    {
-        switch (tok.stringVal)
-        {
-            case "const":    quals |= QUAL_CONST; break;
-            case "register": quals |= QUAL_REG; break;
-            default:
-                report(
-                    SVR_WARN,
-                    format!"qualifier '%s' is not implemented"(tok.stringVal),
-                    SrcLoc(tok.pos, tokstr.filename),
-                );
         }
-        tok = tokstr.read();
+        return lhs;
     }
 
-    tokstr.unread();
-    return quals;
-}
-
-/// complex-type-name corresponds to [direct-abstract-declarator] in
-/// p 6.7.6 Type names. I called it complex-type-name because the type
-/// name parsed by this rule is complicated and composed of other types.
-///
-/// complex-type-name
-///     : "(" abstract-declarator ")" complex-type-name-postfix
-///     | complex-type-name-postfix
-///       ^
-/// complex-type-name-postfix
-///     : "[" constant-expr "]"
-///     | "(" parameter-type-list? ")" complex-type-name-postfix
-///     | empty
-///
-/// Part of the complication of this rule is, if the first rhs is chosen,
-/// we must skip ["(" abstract-declarator ")"] and parse it later.
-Type parseComplexTypeName(ref TokenStream tokstr, Type type)
-{
-    assert(tokstr.peekSep("(") || tokstr.peekSep("["));
-
-    // Tokens that are skipped.
-    Token[] skippedToks = [];
-
-    // Stack that records how many '(' are waited to be balanced.
-    string[] stack = [];
-    
-    if (tokstr.peekSep("("))
+    private Expr relational()
     {
-        tokstr.read();
-        stack ~= "(";
-    }
+        Expr lhs = shift();
+        Token tokop = tokstr.read();
 
-    // Skip until we see the matching ')'.
-    while (!stack.empty())
-    {
-        if (tokstr.peek().kind == Token.EOF)
+        for (;;)
         {
-            return parseTypeError(
-                tokstr,
-                "non-terminated type name",
-                SrcLoc(tokstr.peek().pos, tokstr.filename)
-            );
-        }
-
-        // Pop.
-        if (tokstr.peekSep(")"))
-        {
-            if (stack.empty())
+            if (tokop.kind == Token.SEP && (tokop.stringVal == "<" ||
+                tokop.stringVal == ">" || tokop.stringVal == "<=" ||
+                tokop.stringVal == ">="))
             {
-                return parseTypeError(
-                    tokstr,
-                    "non-balanced ')'",
-                    SrcLoc(tokstr.peek().pos, tokstr.filename)
-                );
+                Expr rhs = shift();
+                lhs = createBinExpr(tokop.stringVal, typeConv(lhs), typeConv(rhs));
             }
-
-            stack.popBack();
-        }
-        // Push.
-        else if (tokstr.peekSep("("))
-        {
-            stack ~= "(";
-        }
-
-        // Add it to the skipped list.
-        skippedToks ~= tokstr.read();
-    }
-
-    if (!skippedToks.empty())
-    {
-        assert(skippedToks[$ - 1].kind == Token.SEP && skippedToks[$ - 1].stringVal == ")");
-        skippedToks.popBack();
-    }
-
-    // Add an EOF token.
-    skippedToks ~= Token(tokstr.peek().pos);
-    auto skippedTokstr = TokenStream(skippedToks, tokstr.filename);
-    
-    // Function ptr type.
-    if (tokstr.matchSep("("))
-    {
-        Type[] params;
-
-        while (!tokstr.matchSep(")"))
-        {
-            // TODO: Parse param-type-list.
-        }
-
-        // Wrap the function ptr up.
-        return parseAbstractDeclarator(
-            skippedTokstr,
-            // NOTE: the pointer is not parsed yet.
-            getFuncType(type, params)
-        );
-    }
-
-    else if (tokstr.matchSep("["))
-    {
-        // Function returning array is not allowed.
-        if (auto fnty = cast(FuncType)type)
-        {
-            return parseTypeError(
-                tokstr,
-                "function returning array is not allowed",
-                SrcLoc(tokstr.peek.pos, tokstr.filename)
-            );
-        }
-        // Array of unknown length.
-        else if (tokstr.matchSep("]"))
-        {
-            return parseAbstractDeclarator(
-                skippedTokstr,
-                getArrayType(type, -1)
-            );
-        }
-
-        auto asz = cast(IntExpr)parseAssignment(tokstr);
-        if (!asz)
-        {
-            return parseTypeError(
-                tokstr,
-                "array size must be known at compile time",
-                SrcLoc(tokstr.peek.pos, tokstr.filename)
-            );
-        }
-
-        if (!tokstr.expectSep("]"))
-            return null;
-
-        return parseAbstractDeclarator(
-            skippedTokstr,
-            getArrayType(type, asz.value)
-        );
-    }
-
-    // Function type.
-    else if (skippedToks.length > 2 && 
-        (skippedToks[1].isSpecifier() || skippedToks[1].isQualifier()))
-    {
-        // TODO: parse parameter-type-list.
-        return parseTypeError(
-            tokstr,
-            "Not implemented yet",
-            SrcLoc(tokstr.peek.pos, tokstr.filename)
-        );
-    }
-
-    // Plain ptr type.
-    else
-    {
-        return parseAbstractDeclarator(
-            skippedTokstr,
-            type
-        );
-    }
-}
-
-/// Consumes as many pointers as possible.
-/// 
-/// abstract-declarator
-///     : pointer
-///     | pointer? complex-type-name
-Type parseAbstractDeclarator(ref TokenStream tokstr, Type type)
-{
-    if (tokstr.peekSep("*"))
-        type = parsePtr(tokstr, type);
-
-    // Flow back if needed.
-    if (tokstr.peekSep("(") || tokstr.peekSep("["))
-    {
-        return parseComplexTypeName(tokstr, type);
-    }
-
-    if (tokstr.peek.kind != Token.EOF)
-    {
-        return parseTypeError(
-            tokstr,
-            format!"unexpected token %s"(tokstr.peek),
-            SrcLoc(tokstr.peek.pos, tokstr.filename)
-        );
-    }
-
-    return type;
-}
-
-/// pointer
-///     : "*" type-qualifier-list? pointer
-///     | empty
-///
-/// [type] is the current type represented by spec-qual list.
-Type parsePtr(ref TokenStream tokstr, Type type)
-{
-    assert(type);
-
-    while (tokstr.matchSep("*"))
-    {
-        uint8_t quals = parseQuals(tokstr);
-        type = getPtrType(type).getQualType(quals);
-    }
-
-    return type;
-}
-
-/// intTypeSpec
-///     : "signed" qualIntType
-///                ^
-///     | "unsigned" qualIntType
-///                  ^
-/// qualIntType
-///     : qual qualIntType*
-///     | ("char" | "short" | "int" | "long" | "long long") qualIntType*
-private Type parseIntTypeSpec(string pref)(ref TokenStream tokstr)
-{
-    static assert(pref == "signed" || pref == "unsigned");
-    static if (pref == "signed")
-    {
-        Type charTy = scharType;
-        Type shortTy = shortType;
-        Type intTy = intType;
-        Type longTy = longType;
-        Type llongTy = llongType;
-    }
-    else
-    {
-        Type charTy = ucharType;
-        Type shortTy = ushortType;
-        Type intTy = uintType;
-        Type longTy = ulongType;
-        Type llongTy = ullongType;
-    }
-
-    // Consume any qualifiers.
-    uint8_t quals = 0;
-    if (tokstr.peek().isQualifier())
-    {
-        quals |= parseQuals(tokstr);
-    }
-
-    auto tok = tokstr.read();
-
-    // "signed" or "unsigned".
-    if (tok.kind != Token.KW)
-    {
-        tokstr.unread();
-        return (quals == 0) ? intType : getQualType(intType, quals);
-    }
-
-    Type resType;
-    switch (tok.stringVal)
-    {
-        case "char":
-            resType = charTy;
-            break;
-
-        case "short":
-            if (tokstr.peek().isQualifier())
+            else
             {
-                quals |= parseQuals(tokstr);
+                tokstr.unread();
+                return lhs;
             }
+        }
+        return lhs;
+    }
 
-            // "signed short int". "int" is optional.
-            tokstr.matchKW("int");
-            resType = shortTy;
-            break;
+    private Expr shift()
+    {
+        Expr lhs = additive();
+        Token tokop = tokstr.read();
 
-        case "int":
-            resType = intTy;
-            break;
-        
-        case "long":
-            if (tokstr.peek().isQualifier())
+        for (;;)
+        {
+            SrcLoc loc = tokstr.currLoc();
+            if (tokop.kind == Token.SEP && (tokop.stringVal == "<<" ||
+                tokop.stringVal == ">>"))
             {
-                quals |= parseQuals(tokstr);
+                Expr rhs = additive();
+                if (!lhs.type.isInteger() || !rhs.type.isInteger())
+                    parseError("non-integer type on shift operator", loc);
+                lhs = createBinExpr(tokop.stringVal, typeConv(lhs), typeConv(rhs));
             }
-
-            // "signed long long (int)"
-            if (tokstr.matchKW("long"))
+            else
             {
-                if (tokstr.peek().isQualifier())
+                tokstr.unread();
+                break;
+            }
+            tokop = tokstr.read();
+        }
+        return lhs;
+    }
+
+    private Expr additive()
+    {
+        Expr lhs = multiplicative();
+        Token tokop = tokstr.read();
+
+        // Consume as many operators as we can.
+        for (;;)
+        {
+            if (tokop.kind == Token.SEP)
+            {
+                if (tokop.stringVal == "+" || tokop.stringVal == "-")
+                    lhs = createBinExpr(tokop.stringVal, typeConv(lhs), typeConv(multiplicative()));
+                else
                 {
-                    quals |= parseQuals(tokstr);
+                    tokstr.unread();
+                    break;
                 }
-                tokstr.matchKW("int");
-                resType = llongTy;
             }
-            // "signed long (int)"
             else
             {
-                tokstr.matchKW("int");
-                resType = longTy;
+                tokstr.unread();
+                break;
             }
-            break;
-
-        default:
-            return parseTypeError(
-                tokstr,
-                format!"unexpected keyword '%s'"(tok),
-                SrcLoc(tok.pos, tokstr.filename)
-            );
+            tokop = tokstr.read();
+        }
+        return lhs;
     }
 
-    return (quals == 0) ? resType : getQualType(resType, quals);
-}
-
-/// struct-or-union-type-specifier
-///     : ("struct" | "union") (identifier)? ('{' struct-decl-list '}')?
-///                            ^
-private Type parseStructTypeSpec(ref TokenStream tokstr, bool isUnion)
-{
-    auto isDef = false;
-    auto tok = tokstr.read();
-
-    Token tokident = Token(Token.IDENT, "", tok.pos);
-    RecType recType;
-    RecField[] decls;
-
-    // identifier.
-    if (tok.kind == Token.IDENT)
+    private Expr multiplicative()
     {
-        tokident = tok;
-        tok = tokstr.read();
-    }
+        Expr lhs = _cast();
+        Token tokop = tokstr.read();
 
-    // struct-decl-list.
-    if (tok.kind == Token.SEP && tok.stringVal == "{")
-    {
-        string tystr;
-        if (getRecType(tokident.stringVal, tystr, isUnion).members)
+        // Consume as many operators as we can.
+        for (;;)
         {
-            return parseTypeError(
-                tokstr,
-                format!"redeclaration of '%s'"(tokident.stringVal),
-                SrcLoc(tokident.pos, tokstr.filename),
-            );
+            if (tokop.kind == Token.SEP)
+            {
+                if (tokop.stringVal == "*" || tokop.stringVal == "/" || tokop.stringVal == "%")
+                    lhs = createBinExpr(tokop.stringVal, typeConv(lhs), typeConv(_cast()));
+                else
+                {
+                    tokstr.unread();
+                    break;
+                }
+            }
+            else
+            {
+                tokstr.unread();
+                break;
+            }
+
+            tokop = tokstr.read();
+        }
+        return lhs;
+    }
+
+    private Expr _cast()
+    {
+        SrcLoc loc = tokstr.currLoc();
+        // Compound literal or type cast.
+        if (tokstr.peekSep("(") && isType(tokstr.peek(1)))
+        {
+            tokstr.read();  // '('
+            Type type = typeName();
+            expectSep(")");
+
+            // Compound literal.
+            if (tokstr.matchSep("{"))
+                return postfix(compoundLiteral(type));
+
+            if (!type.isScalar())
+                parseError("conversion to non-scalar type");
+            Expr operand = _cast();
+            return new UnaryExpr(UnaryExpr.CAST, type, operand, loc);
         }
 
-        isDef = true;
-        decls = parseStructDeclList(tokstr);
-    }
-    else
-    {
-        tokstr.unread();
+        return unary();
     }
 
-    string tystr;
-    recType = getRecType(tokident.stringVal, decls, tystr, isUnion);
-
-    if (isDef && isLocalEnv())
+    private Expr compoundLiteral(Type)
     {
-        // Rm this type info at the end of this env.
-        envAddExitCb(()
+        return null;
+    }
+
+    /// Unary expression.
+    private Expr unary()
+    {
+        auto tokop = tokstr.read();
+        Expr expr;
+
+        if (tokop.kind == Token.SEP)
         {
-            removeType(tystr);
-        });
-    }
-    return recType;
-}
+            switch (tokop.stringVal)
+            {
+                case "++":      expr = unaryIncrDecr(true); break;
+                case "--":      expr = unaryIncrDecr(false); break;
+                case "sizeof":  expr = unarySizeof(); break;
+                case "&":       expr = unaryAddrof(); break;
+                case "*":       expr = unaryDeref(); break;
+                case "+":       expr = _cast(); break;
+                case "-":       expr = unaryMinus(); break;
+                case "~":       expr = unaryBitNot(); break;
+                case "!":       expr = unaryLogicalNot(); break;
+                default: {
+                    tokstr.unread();
+                    expr = primary();
+                    break;
+                }
+            }
+        }
+        // Descend to primary.
+        else
+        {
+            tokstr.unread();
+            expr = primary();
+        }
 
-/// struct-decl-list
-///     : (spec-qual-list declarator)* ;
-///
-RecField[] parseStructDeclList(ref TokenStream tokstr)
-{
-    // TODO:
-    tokstr.expectSep("}");
-    return null;
-}
-
-/// Test parseParen.
-unittest
-{
-    uniProlog();
-    Expr testParseCompLitExpr(string code)
-    {
-        auto tokstr = TokenStream(code, "dummy.c");
-        auto e = cast(CompLitExpr)parsePrimary(tokstr);
-
-        assert(e && "Not a CompLitExpr.");
-        dumpExpr(e);
-        return e;
+        return postfix(expr);
     }
 
-    getRecType("simple", [
-        RecField(intType, "member_1"),
-        RecField(charType, "member_2"),
-        RecField(longType, "member_3")
-    ]);
-
-    getRecType("has_nested_member", [
-        RecField(getRecType("simple"), "simple_member"),
-        RecField(longType, "member_2")
-    ]);
-
-    testParseCompLitExpr("(int) {1}");
-    testParseCompLitExpr("(struct simple) { .member_1 = 10, .member_3 = 100, }");
-    testParseCompLitExpr("(struct has_nested_member) { .simple_member = { .member_2 = 20 }, .member_2 = 100 }");
-    uniEpilog();
-}
-
-/// Test parsePrimary.
-unittest
-{
-    uniProlog();
-    void testPrimary(T)(string code, T ast)
+    private Expr unaryIncrDecr(bool incr)
     {
-        static assert(
-            is (T == IntExpr)   ||
-            is (T == FloatExpr) ||
-            is (T == StringExpr)
-        );
-
-        auto tokstr = TokenStream(code, "dummy.c");
-        auto e = parsePrimary(tokstr);
-        auto expr = cast(T)e;
-
-        assert(expr !is null);
-        assert(expr.value == ast.value);
-        assert(expr.type == ast.type);
-        writeln("src: " ~ code);
-        dumpExpr(expr);
+        auto k = incr ? UnaryExpr.PREF_INCR : UnaryExpr.PREF_DECR;
+        SrcLoc loc = tokstr.currLoc();
+        Expr opnd = typeConv(unary());
+        ensureLvalue(opnd);
+        return new UnaryExpr(k, opnd.type, opnd, loc);
     }
 
-    // Test integer.
-    testPrimary("56L;", new IntExpr(longType, 56, SrcLoc()));
-
-    // Test FP.
-    testPrimary("23.20", new FloatExpr(floatType, 23.20, SrcLoc()));
-
-    // Test overflow.
-    testPrimary("2147483650", new IntExpr(intType, -2_147_483_646, SrcLoc()));
-
-    // Test overflow.
-    testPrimary("4294967298", new IntExpr(intType, 2, SrcLoc()));
-
-    // Test string.
-    testPrimary("\"dummy string\";", new StringExpr("dummy string", SrcLoc()));
-    
-    uniEpilog();
-}
-
-/// Test parseIntTypeSpec
-unittest
-{
-    uniProlog();
-    void testParseIntTypeSpec(string pref)(string code, Type etype)
+    private Expr unarySizeof()
     {
-        auto tokstr = TokenStream(code, "testIntTypeSpec.c");
-        auto type = parseIntTypeSpec!(pref)(tokstr);
+        Type type;
+        SrcLoc loc = tokstr.currLoc();
 
-        assert(type == etype);
+        // sizeof (type)
+        if (tokstr.peekSep("(") && isType(tokstr.peek(1)))
+        {
+            tokstr.read();      // "("
+            type = typeName();
+            expectSep(")");
+        }
+        else
+            type = unary().type;
+
+        return new IntExpr(ulongType, type.size, loc);
     }
 
-    testParseIntTypeSpec!"signed"(
-        "short int",
-        shortType
-    );
-
-    testParseIntTypeSpec!"unsigned"(
-        "long",
-        ulongType
-    );
-
-    testParseIntTypeSpec!"signed"(
-        "int",
-        intType
-    );
-
-    uniEpilog();
-}
-
-/// Test parseTypeSpec
-unittest
-{
-    uniProlog();
-
-    void testTryParseObjTypeSpec(string code, Type etype)
+    private Expr unaryAddrof()
     {
-        auto tokstr = TokenStream(code, "testTryParseObjTypeSpecs.c");
-        auto type = parseTypeSpecs(tokstr);
+        SrcLoc loc = tokstr.currLoc();
+        Expr opnd = _cast();
+        if (opnd.type.isFunction())
+            return typeConv(opnd);
 
-        assert(type == etype);
+        ensureLvalue(opnd);
+        return new UnaryExpr(UnaryExpr.ADDR_OF, opnd.type.makePointer(), opnd, loc);
     }
 
-    testTryParseObjTypeSpec(
-        "_Bool",
-        boolType
-    );
-
-    testTryParseObjTypeSpec(
-        "int",
-        intType
-    );
-
-    testTryParseObjTypeSpec(
-        "long long",
-        llongType
-    );
-
-    testTryParseObjTypeSpec(
-        "long long int",
-        llongType
-    );
-
-    uniEpilog();
-}
-
-/// Test parsePostfix
-unittest
-{
-    uniProlog();
-
-    auto tokstr = TokenStream("56L", "testParsePostfix.c");
-    auto intExpr = cast(IntExpr)parsePostfix(tokstr);
-    assert(intExpr);
-    assert(intExpr.value == 56);
-    assert(intExpr.type == longType);
-
-    void testParseCallExpr(FuncDecl funcDecl, string argstr = "")
+    private Expr unaryDeref()
     {
-        assert(funcDecl);
-        envPush();
-        envAddDecl(funcDecl.name, funcDecl);
+        SrcLoc loc = tokstr.currLoc();
+        Expr opnd = typeConv(_cast());
+
+        if (!opnd.type.isPointer())
+            parseError(format!"unable to deference type '%s'"(opnd.type), loc);
+
+        if (opnd.type.base().isFunction())
+            return opnd;
+        return new UnaryExpr(UnaryExpr.DEREF, opnd.type.base(), opnd, loc);
+    }
+
+    private Expr unaryMinus()
+    {
+        SrcLoc loc = tokstr.currLoc();
+        Expr opnd = typeConv(_cast());
+
+        if (!opnd.type.isArithmetic())
+            parseError("'-' on non-arithmetic type", loc);
+        return new UnaryExpr(UnaryExpr.MINUS, opnd.type, opnd, loc);
+    }
+
+    private Expr unaryBitNot()
+    {
+        SrcLoc loc = tokstr.currLoc();
+        Expr opnd = typeConv(_cast());
+
+        if (!opnd.type.isInteger())
+            parseError("'~' on non-integer type", loc);
+        return new UnaryExpr(UnaryExpr.BIT_NOT, opnd.type, opnd, loc);
+    }
+
+    private Expr unaryLogicalNot()
+    {
+        SrcLoc loc = tokstr.currLoc();
+        Expr opnd = typeConv(_cast());
+
+        return new UnaryExpr(UnaryExpr.BOOL_NOT, boolType, opnd, loc);
+    }
+
+    /// Consumes postfix operators. [expr] is passed from unary.
+    private Expr postfix(Expr expr)
+    {
+        // Exhaust all possible postfix operators.
+        for (;;)
+        {
+            Token tok = tokstr.read();
+            if (tok.kind == Token.SEP)
+            {
+                switch (tok.stringVal)
+                {
+                    case "++", "--":    expr = postfixIncrDecr(expr, tok.stringVal); break;
+                    case ".":           expr = postfixMember(expr, false); break;
+                    case "->":          expr = postfixMember(expr, true); break;
+                    case "[":           expr = postfixSubscript(expr); break;
+                    case "(":           expr = postfixCall(expr); break;
+                    default: {
+                        tokstr.unread(); 
+                        return expr;
+                    }
+                }
+            }
+            else
+            {
+                tokstr.unread();
+                return expr;
+            }
+        }
+    }
+
+    private Expr postfixIncrDecr(Expr lhs, string op)
+    {
+        SrcLoc loc = tokstr.currLoc();
+        ensureLvalue(lhs);
+        ensureNotConst(lhs);
+        if (!lhs.type.isScalar())
+            parseError(format!"cannot perform %s on type '%s"(op, lhs.type), lhs.loc);
+
+        return new UnaryExpr(
+            (op == "++" ? UnaryExpr.POST_INCR : UnaryExpr.POST_DECR),
+            lhs.type, lhs, loc);
+    }
+
+    private Expr postfixMember(Expr lhs, bool deref)
+    {
+        SrcLoc loc = tokstr.currLoc();
+        // Member name.
+        auto tokIdent = tokstr.read();
+        auto identLoc = tokstr.currLoc();
+        if (tokIdent.kind != Token.IDENT)
+            parseError("expect identifier", identLoc);
+
+        // Deref the pointer.
+        if (deref)
+        {
+            if (!lhs.type.isPointer() && !lhs.type.isArray())
+                parseError(format!"cannot dereference expression of type '%s'"(lhs.type), loc);
+
+            lhs = new UnaryExpr(
+                UnaryExpr.DEREF,
+                lhs.type.base(), /* result type. */
+                lhs,        /* opnd. */
+                lhs.loc);
+        }
+
+        Type ty = ensureMember(lhs.type, tokIdent.stringVal);
+        return new MemberExpr(ty, lhs, tokIdent.stringVal, loc);
+    }
+
+    private Expr postfixSubscript(Expr lhs)
+    {
+        Expr idx = expr();
+        if (!idx.type.isPointer() && !idx.type.isArray())
+            parseError(format!"'%s' is not a ptr/array type"(lhs.type), lhs.loc);
+
+        if (!idx.type.isInteger())
+            parseError("array subscript is not an integer", idx.loc);
         
-        auto tokstr = TokenStream(
-            format!"%s(%s)"(funcDecl.name, argstr), 
-            "testParseCallExpr.c"
-        );
-        auto expr = cast(CallExpr)parsePostfix(tokstr);
-        assert(expr);
-        assert(cast(IdentExpr)expr.callee);
-        dumpExpr(expr);
-
-        envPop();
+        expectSep("]");
+        lhs = createBinExpr("+", lhs, idx);
+        return new UnaryExpr(UnaryExpr.DEREF, lhs.type.base(), lhs, idx.loc);
     }
 
-    /// Test function with no arg.
-    testParseCallExpr(new FuncDecl(
-        getFuncType(intType, []),/* function type */
-        "foo",                   /* function name */
-        null,                    /* AST of the function body. */
-        SrcLoc()
-    ));
-
-    // func with "void" as arg.
-    testParseCallExpr(new FuncDecl(
-        getFuncType(intType, [voidType]),
-        "foo",
-        null,
-        SrcLoc()
-    ));
-
-    uniEpilog();
-}
-
-/// Test parseUnary
-unittest
-{
-    uniProlog();
-
-    auto declVarA = new VarDecl(
-        intType,
-        "a",
-        null,
-        SrcLoc(),
-    );
-    envPush();
-    envAddDecl("a", declVarA);
-
-    T testValid(T)(string code, string msg = "assert failed")
+    private Expr postfixCall(Expr lhs)
     {
-        auto tokstr = TokenStream(code, "testParseUnary.c");
-        auto expr = parseUnary(tokstr);
-        assert(expr, msg);
-        assert(cast(T)expr, msg);
+        // Function designator.
+        if (lhs.type.isFunction())
+        {
+            Expr[] args = funcArgs(lhs.type.params(), lhs.type.varArgs());
+            IdentExpr funIdent = cast(IdentExpr)lhs;
+            assert(funIdent);
 
-        writeln("src: " ~ code);
-        dumpExpr(expr);
-        return cast(T)expr;
+            return new CallExpr(lhs.type.ret(), funIdent.var.name, args, funIdent.loc);
+        }
+
+        if (!lhs.type.isPointer() || !lhs.type.base().isFunction())
+            parseError(format!"expression of type '%s' is not callable"(lhs.type), lhs.loc);
+
+        // Call a pointer to a function.
+        Expr[] args = funcArgs(lhs.type.base().params(), lhs.type.base().varArgs());
+        return new CallExpr(lhs, args, lhs.loc);
     }
 
-    void testInvalid(string code, string msg = "assert falied")
+    private Expr[] funcArgs(Type[] params, bool varArgs = false)
     {
-        auto tokstr = TokenStream(code, "testParseUnary.c");
-        auto expr = parseUnary(tokstr);
-        assert(!expr, msg);
+        int i = 0;
+        Expr[] args;
+        while (!tokstr.peekSep(")"))
+        {
+            Type type = null;
+            Expr arg = assignment();
+
+            if (i >= params.length && !varArgs)
+                parseError("too many arguments to function of type", arg.loc);
+            else if (i >= params.length)
+                type = arg.type.isFP() ? doubleType : arg.type.isInteger() ? intType : arg.type;
+            else
+                type = params[i];
+
+            ensureAssignable(type, arg.type);
+            if (!arg.type.isSame(type))
+                arg = new UnaryExpr(UnaryExpr.CAST, type, arg, arg.loc);
+
+            args ~= arg;
+            if (tokstr.peekSep(")"))
+                break;
+
+            expectSep(",");
+        }
+
+        expectSep(")");
+        return args;
     }
 
-    // Bool_not on string will always return 0.
-    auto sexpr = testValid!IntExpr("!\"a string\"");
-    assert(sexpr.value == 0);
-
-    // Bool_not on integer.
-    assert(testValid!IntExpr("!23").value == 0);
-
-    // Inversion.
-    assert(testValid!IntExpr("~0x10").value == -17);
-
-    /// Fall back to parsePostfix().
-    testValid!UnaryExpr("a++");
-
-    /// Fall back to parsePostfix(). b is not declared.
-    testInvalid("b++");
-
-    /// Test invalid opnd for prefix ++.
-    testInvalid("++a++", "a++ is an rvalue");
-
-    /// Test valid usage of &.
-    testValid!UnaryExpr("&a");
-
-    /// Test & on rvalue.
-    testInvalid("&\"string\"");
-
-    /// Test sizeof expr.
-    auto intexpr = testValid!IntExpr("sizeof 4", "sizeof operator must be evaluated at parsing time.");
-    assert(intexpr.value == intType.typeSize());
-
-    /// Test sizeof expr.
-    intexpr = testValid!IntExpr("sizeof(int*)");
-    assert(intexpr.value == PTR_SIZE);
-
-    /// Test * on non-ptr and non-array expr.
-    testInvalid("*a", "cannot deref a non-ptr type");
-
-    envPop();
-    uniEpilog();
-}
-
-/// Test parseSpecQualList
-unittest
-{
-    uniProlog();
-    void testValid(string code, string tystr)
+    /// primary-expression
+    ///     : identifier
+    ///     | constant
+    ///     | string-literal
+    ///     | "(" expr ")"
+    private Expr primary()
     {
-        auto tokstr = TokenStream(code, "testParseSpecQualList.c");
-        auto type = parseSpecQualList(tokstr);
-        assert(type);
-        assert(tokstr.peek().kind == Token.EOF);
-        assert(type.toString == tystr);
+        auto tok = tokstr.read();
+        auto loc = SrcLoc(tok.pos, tokstr.filename);
+
+        switch (tok.kind)
+        {
+            case Token.IDENT:   return identifier(tok.stringVal, loc);
+            case Token.INT:     return integer(tok.intVal, tok.intsfx, loc);
+            case Token.FLOAT:   return floating(tok.floatVal, tok.fsfx, loc);
+            case Token.STRING:  return new StringExpr(tok.stringVal, loc);
+            case Token.SEP:
+                // NOTE: we've already handled compound literal in cast expression.
+                expectSep("(");
+                Expr grouping = expr();
+                expectSep(")");
+                return grouping;
+
+            default:
+                assert(false, "internal error");
+        }
     }
 
-    // Normal.
-    testValid("const int", "const int");
-
-    // Qualifiers can be at front or tail.
-    testValid("int const", "const int");
-
-    // Redundant qualifiers are ignored.
-    testValid("const int const", "const int");
-
-    // Intermix qualifiers.
-    testValid("signed const int", "const int");
-
-    // Postfix qualifers.
-    testValid("signed int const", "const int");
-
-    uniEpilog();
-}
-
-/// Test parseTypename
-unittest
-{
-    uniProlog();
-
-    void testParseType(T)(string code, string repr)
-        if (is(T : Type))
+    private Expr identifier(string name, SrcLoc loc)
     {
-        auto tokstr = TokenStream(code, "testParseTypename.c");
-        auto type = cast(T)parseTypeName(tokstr);
-        assert(type);
-        assert(type.toString == repr, format!"expected type string '%s', but got '%s'"(repr, type));
+        // Function designator.
+        if (tokstr.peekSep("(") && !(name in genv))
+        {
+            auto fntype = new FuncType(intType, null);
+            auto fndecl = new FuncDecl(fntype, name, null, SrcLoc());
+            auto fndesg = new IdentExpr(fndecl, loc);
+
+            report(SVR_WARN, format!"implicit declaration of %s"(name), loc);
+            // Pointer to function. As the result of the conversion is
+            // not an lvalue.
+            return typeConv(fndesg);
+        }
+
+        Decl decl = null;
+        if (tokstr.peekSep("("))
+            decl = genv[name];
+
+        if (!decl)
+            decl = symResolve(name);
+
+        if (!decl)
+            parseError(format!"use of undeclared variable '%s'"(name), loc);
+
+        return new IdentExpr(decl, loc);
     }
 
-    void testInvalidType(string code)
+    private Expr integer(long val, string sfx, SrcLoc loc)
     {
-        auto tokstr = TokenStream(code, "testParseTypename.c");
-        auto type = parseTypeName(tokstr);
-        writeln(type);
-        assert(!type);
+        const lsfx = map!toLower(sfx).array;
+        switch (lsfx)
+        {
+            case "l":   return new IntExpr(longType, val, loc);
+            case "u":   return new IntExpr(uintType, val, loc);
+            case "ul":  return new IntExpr(ulongType, val, loc);
+            case "ll":  return new IntExpr(llongType, val, loc);
+            case "ull": return new IntExpr(ullongType, val, loc);
+            default:    return new IntExpr(val > int32_t.max ? longType : intType, val, loc);
+        }
+        assert(0);
     }
 
-    alias testBasic = testParseType!(Type);
-    alias testPtr = testParseType!(PtrType);
-    alias testFunc = testParseType!(FuncType);
-    alias testArray = testParseType!(ArrayType);
-    alias testStruc = testParseType!(RecType);
-
-    testBasic("int", "int");
-
-    // Basic type ptr.
-    testPtr("int*", "int*");
-
-    testPtr("int *const", "int*const");
-
-    // Simple func ptr.
-    testPtr("int(*)()", "int(*)()");
-
-    // Nested parentheses.
-    testPtr("int((*))()", "int(*)()");
-
-    // Const ptr.
-    testPtr("int(*const)()", "int(*const)()");
-
-    // TODO: after finishing parameter-list-type.
-    // Simple func.
-    // testFunc("int()", "int()");
-
-    // Test array.
-    testArray("int[5]", "int[5]");
-
-    // Array of int*.
-    testArray("int*[5]", "int*[5]");
-
-    // Test struct.
-    testStruc("struct Foo", "struct Foo");
-
-    // Test struct ptr.
-    testPtr("struct BBB*", "struct BBB*");
-
-    // Test funcPtr array.
-    testArray("int(*const [2])()", "int(*const[2])()");
-
-    testArray("int*(*[2])()", "int*(*[2])()");
-
-    uniEpilog();
-}
-
-/// Test parseCast
-unittest
-{
-    uniProlog();
-    void testLit(T, N)(string code, Type restype, N val)
-        if (is(T == IntExpr) || is(T == FloatExpr))
+    private Expr floating(double val, string sfx, SrcLoc loc)
     {
-        auto tokstr = TokenStream(code, "testParseCast.c");
-        auto expr = cast(T)parseCast(tokstr);
-        assert(expr);
-        assert(expr.type == restype);
-        assert(expr.value == val);
-        writeln("src: " ~ code);
-        dumpExpr(expr);
+        switch (sfx)
+        {
+            case "f", "F", "":  return new FloatExpr(floatType, val, loc);
+            case "l", "L":      return new FloatExpr(doubleType, val, loc);
+            default:            return new FloatExpr(doubleType, val, loc);
+        }
+        assert(0);
     }
-
-    void testNonLit(string code, Type type)
-    {
-        auto tokstr = TokenStream(code, "testParseCast.c");
-        auto expr = cast(UnaryExpr)parseCast(tokstr);
-        assert(expr);
-        assert(expr.type == type);
-        assert(expr.kind == UnaryExpr.CAST);
-        writeln("src: " ~ code);
-        dumpExpr(expr);
-    }
-
-    void testInvalid(string code)
-    {
-        auto tokstr = TokenStream(code, "testParseCast.c");
-        auto expr = cast(UnaryExpr)parseCast(tokstr);
-        assert(!expr);
-    }
-
-    testLit!(IntExpr, long)("(long)4", longType, 4);
-    testInvalid("(struct Foo)4");
-    testLit!(IntExpr, long)(
-        "(struct Foo*)4", 
-        getPtrType(
-            getRecType("Foo")), 
-        4);
-    testNonLit("(void *)\"a small string\"", getPtrType(voidType));
-    uniEpilog();
-}
-
-/// Test parseBinary.
-unittest
-{
-    uniProlog();
-
-    void testLit(T, N)(
-        string code, 
-        Type resType, 
-        N val, 
-        Expr function(ref TokenStream) PARSER = &parseLogicalOR
-    ) if (is (T == IntExpr) || is (T == FloatExpr))
-    {
-        auto tokstr = TokenStream(code, "testParseBinary.c");
-        auto expr = cast(T)PARSER(tokstr);
-        assert(tokstr.peek().kind == Token.EOF);
-        assert(expr);
-        assert(expr.type == resType, "expect result type " ~ resType.toString());
-        assert(expr.value == val, format!"expect value '%s(%x)', but got '%s(%x)'"(val, val, expr.value, expr.value));
-        writeln("src: " ~ code);
-        dumpExpr(expr);
-    }
-
-    void testNonLit(
-        string code, 
-        Type resType, 
-        Expr function(ref TokenStream) PARSER = &parseLogicalOR)
-    {
-        auto tokstr = TokenStream(code, "testParseBinary.c");
-        auto expr = cast(BinExpr)PARSER(tokstr);
-        assert(tokstr.peek().kind == Token.EOF);
-        assert(expr);
-        assert(expr.type == resType, format!"expect result type '%s', but got '%s'"(resType, expr.type));
-        writeln("src: " ~ code);
-        dumpExpr(expr);
-    }
-
-    void testInvalid(
-        string code, 
-        Expr function(ref TokenStream) PARSER = &parseLogicalOR)
-    {
-        auto tokstr = TokenStream(code, "testParseBinary.c");
-        auto expr = cast(BinExpr)PARSER(tokstr);
-        assert(tokstr.peek().kind == Token.EOF);
-        assert(!expr);
-    }
-
-    /*
-    Multiplicative
-    */
-
-    // Int literals.
-    testLit!(IntExpr, long)("4 * 5", intType, 20);
-
-    // Cast literals.
-    testLit!(IntExpr, long)("(long)4 * 6", longType, 24);
-
-    // Successive int literals.
-    testLit!(IntExpr, long)("4 * 5 * 2", intType, 40);
-
-    // Test left-assoc
-    testLit!(IntExpr, long)("4 * 5 % 5", intType, 0);
-
-    // Promote to float.
-    testLit!(FloatExpr, double)("4 * 5.0", floatType, 20.0);
-
-    // Promote to double.
-    testLit!(FloatExpr, double)("4 * 5.0L", doubleType, 20.0);
-
-    /*
-    Additive
-    */
-
-    // Int literals.
-    testLit!(IntExpr, long)("5 + 6", intType, 11);
-
-    // Integer promotion.
-    testLit!(IntExpr, long)("5 + 6L", longType, 11);
-
-    // Recursive-descent.
-    testLit!(IntExpr, long)("10 + 2 * 3", intType, 16);
-
-    // Precedence and promotion.
-    testLit!(IntExpr, long)("10 * 2 + 32 / 2L", longType, 36);
-
-    /*
-    Shift
-    */
-
-    // Int literals.
-    testLit!(IntExpr, long)("20 << 2", intType, 80);
-
-    // Integer promotion.
-    testLit!(IntExpr, long)("20L << 2", longType, 80);
-
-    // Precedence.
-    testLit!(IntExpr, long)("20 * 2 + 2 << 2", intType, 168);
-
-    /*
-    Relational
-    */
-
-    // Int literals.
-    testLit!(IntExpr, long)("2 < 1", intType, 0);
-
-    // Int literals.
-    testLit!(IntExpr, long)("23 >= 23", intType, 1);
-
-    /*
-    Equality
-    */
-
-    // Int literals.
-    testLit!(IntExpr, long)("1 == 1", intType, 1);
-
-    // Precedence.
-    testLit!(IntExpr, long)("1 == 1 > 0", intType, 1);
-
-    // Precedence.
-    testLit!(IntExpr, long)("1 == 1 < 0", intType, 0);
-
-    // Ptr literals.
-    testLit!(IntExpr, long)("(char*)0 == (char*)0", intType, 1);
-
-    // Ptr literals.
-    testLit!(IntExpr, long)("(void*)0 == (char*)0", intType, 1);
-
-    // Ptr literals.
-    testLit!(IntExpr, long)("(char*)0 == (int*)0", intType, 1);
-
-    /*
-    Bitwise-AND
-    */
-    testLit!(IntExpr, long)("0xF001 & 0xFF00", intType, 0xF000);
-
-    testLit!(IntExpr, long)("0xF001 & 0xFF00 & 0xE000", intType, 0xE000);
-
-    /*
-    Bitwise-XOR
-    */
-    testLit!(IntExpr, long)("0x1001 ^ 0x0110", intType, 0x1111);
-
-    // Precedence.
-    testLit!(IntExpr, long)("0x0110 ^ 0x0000 & 0x1001 ", intType, 0x0110);
-
-    /*
-    Bitwise-OR
-    */
-    testLit!(IntExpr, long)("0x0001 ^ 0x1110", intType, 0x1111);
-
-    // Precedence.
-    testLit!(IntExpr, long)("0x1000 | 0x0110 ^ 0x0000 & 0x1001 ", intType, 0x1110);
-
-    /*
-    Logical-AND and logical-OR
-    */
-    testLit!(IntExpr, long)("1 && 2", intType, 1);
-
-    // Precedence.
-    testLit!(IntExpr, long)("1 && 0 ^ 1", intType, 1);
-
-    testLit!(IntExpr, long)("1 && 0 || 1", intType, 1);
-
-    testLit!(IntExpr, long)("(void*)1 && (char*)2", intType, 1);
-
-    testLit!(IntExpr, long)("1 && 20 && 0 || 0", intType, 0);
-
-    testLit!(IntExpr, long)("\"stringLit\" && \"stringLit2\"", intType, 1);
-
-    envPush();
-    envAddDecl("a", new VarDecl(
-        longType,
-        "a",
-        null,
-        SrcLoc()
-    ));
-    envAddDecl("b", new VarDecl(
-        ushortType,
-        "b",
-        null,
-        SrcLoc()
-    ));
-    envAddDecl("c", new VarDecl(
-        getPtrType(intType),
-        "c",
-        null,
-        SrcLoc()
-    ));
-    envAddDecl("d", new VarDecl(
-        getPtrType(intType),
-        "d",
-        null,
-        SrcLoc()
-    ));
-
-    // Promotes literal.
-    testNonLit("a * 5", longType);
-
-    // Promotes var.
-    testNonLit("b * 5", intType);
-
-    // Promotes to signed.
-    testNonLit("a * b", longType);
-
-    // Promotes both.
-    testNonLit("a * 5UL", ulongType);
-
-    // Ptr as operand.
-    testInvalid("c * 5");
-
-    // Additive and mult.
-    testNonLit("a * 5 + 4", longType);
-
-    testNonLit("b << 33", intType);
-
-    /*
-    Ptr arithmetic.
-    */
-
-    testNonLit("c + 2", getPtrType(intType));
-    testNonLit("c - c", getPtrType(intType));
-    testInvalid("c * 2");
-
-    /*
-    FP shifts are invalid.
-    */
-    testInvalid("23.0 << 2");
-
-    /*
-    Ptr relational.
-    */
-    testNonLit("c > 0", intType);
-
-    testNonLit("c >= c", intType);
-
-    testNonLit("c == d", intType);
-
-    testNonLit("\"string a\" > \"string b\"", intType);
-    envPop();
-    uniEpilog();
-}
-
-/// Test parseCondExpr.
-unittest
-{
-    uniProlog();
-    T testCondExpr(T = CondExpr)(string code)
-    {
-        auto tokstr = TokenStream(code, "testParseCondExpr.c");
-        auto expr = cast(T)parseCondExpr(tokstr);
-        assert(tokstr.peek().kind == Token.EOF);
-        assert(expr);
-        writeln("src: " ~ code);
-        dumpExpr(expr);
-        return expr;
-    }
-
-    void testInvalid(string code)
-    {
-        auto tokstr = TokenStream(code, "testParseCondExpr.c");
-        auto expr = parseCondExpr(tokstr);
-
-        assert(!expr);
-    }
-
-    envPush();
-    envAddDecl("a", new VarDecl(
-        longType,
-        "a",
-        null,
-        SrcLoc()
-    ));
-    envAddDecl("b", new VarDecl(
-        shortType,
-        "b",
-        null,
-        SrcLoc(),
-    ));
-
-    /// Non-literal
-    testCondExpr("a ? \"string A\" : \"string B\"");
-
-    /// Integer literal cond.
-    auto sexpr = testCondExpr!(StringExpr)("1 ? \"string A\" : \"string B\"");
-    assert(sexpr.value == "string A");
-
-    /// String literal cond.
-    sexpr = testCondExpr!(StringExpr)("\"s\" ? \"a\" : \"b\"");
-    assert(sexpr.value == "a");
-
-    /// Arithmetic conversion.
-    auto longexpr = testCondExpr!(IntExpr)("1 ? 1 : 2L");
-    assert(longexpr.value == 1);
-    assert(longexpr.type == longType);
-
-    /// Pointer conversions.
-    auto ptrexpr = testCondExpr!(UnaryExpr)("1 ? &a : (void*)0");
-    assert(ptrexpr.type == getPtrType(longType));
-
-    /// Parse nested conditional expressions.
-    auto nsted = testCondExpr("1 ? &a ? 1 : 0 : 3");
-    auto intexpr = testCondExpr!(IntExpr)("1 ? 1 ? 1 : 0 : 3");
-    assert(intexpr.value == 1);
-    assert(intexpr.type == intType);
-
-    /// Incompatible sec & thrd opnds.
-    testInvalid("0 ? \"fff\" : 12");
-
-    envPop();
-    uniEpilog();
-}
-
-/// test parseAssignment.
-unittest
-{
-    uniProlog();
-    void testValid(string code)
-    {
-        auto tokstr = TokenStream(code, "testParseAssignment.c");
-        auto expr = cast(AssignExpr)parseAssignment(tokstr);
-        
-        assert(tokstr.peek().kind == Token.EOF);
-        assert(expr);
-        writefln("src: \"%s\"", code);
-        dumpExpr(expr);
-    }
-
-    void testInvalid(string code)
-    {
-        auto tokstr = TokenStream(code, "testParseAssignment.c");
-        auto expr = cast(AssignExpr)parseAssignment(tokstr);
-
-        assert(!expr);
-    }
-
-    envPush();
-    envAddDecl("a", new VarDecl(
-        longType,
-        "a",
-        null,
-        SrcLoc()
-    ));
-    envAddDecl("b", new VarDecl(
-        getPtrType(doubleType),
-        "b",
-        null,
-        SrcLoc()
-    ));
-    envAddDecl("fooStruc", new VarDecl(
-        getRecType("Foo"),
-        "fooStruc",
-        null,
-        SrcLoc()
-    ));
-    envAddDecl("barStruc", new VarDecl(
-        getRecType("Bar"),
-        "barStruc",
-        null,
-        SrcLoc()
-    ));
-
-    testValid("a = 23");
-    testValid("a = 23.1");
-    testValid("b = &a");
-    testValid("a += 23");
-    testValid("a *= 2");
-    testInvalid("fooStruc = barStruc");
-    testInvalid("22 = 22");
-    testInvalid("b += b");
-
-    envPop();
-    uniEpilog();
-}
-
-/// test parseExpr.
-unittest
-{
-    uniProlog();
-    T testParseExpr(T)(string code)
-        if (is(T : Expr))
-    {
-        auto tokstr = TokenStream(code, "testParseExpr.c");
-        auto expr = cast(T)parseExpr(tokstr);
-        assert(expr);
-        writefln("src: \"%s\"", code);
-        dumpExpr(expr);
-        return expr;
-    }
-
-    envPush();
-    envAddDecl("integer", new VarDecl(
-        intType,
-        "integer",
-        null,
-        SrcLoc()
-    ));
-    envAddDecl("intptr", new VarDecl(
-        getPtrType(longType),
-        "intptr",
-        null,
-        SrcLoc()
-    ));
-
-    testParseExpr!(CommaExpr)("1, 2 + 3");
-    testParseExpr!(CommaExpr)("\"string\", 2 + 3");
-    testParseExpr!(BinExpr)("2 + 3 * integer");
-    testParseExpr!(CondExpr)("integer ? integer : integer + 1");
-    testParseExpr!(IntExpr)("2 + 3 * 3");
-    testParseExpr!(UnaryExpr)("&integer");
-    testParseExpr!(AssignExpr)("intptr = &integer");
-
-    uniEpilog();
 }

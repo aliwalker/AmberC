@@ -39,11 +39,10 @@ class Node
 /// Base class for expressions.
 class Expr : Node
 {
-    /// Type of the expression.
-    const Type type;
+    Type type;
     
     /// Constructor.
-    this(const Type type, SrcLoc loc)
+    this(Type type, SrcLoc loc)
     {
         super(loc);
         this.type = type;
@@ -57,7 +56,7 @@ class IntExpr : Expr
     long value;
 
     /// Integer.
-    this(const Type type, long val, SrcLoc loc)
+    this(Type type, long val, SrcLoc loc)
     {
         assert(
             type == shortType   ||
@@ -68,7 +67,7 @@ class IntExpr : Expr
             type == uintType    ||
             type == ulongType   ||
             type == ullongType  ||
-            (cast(PtrType)type) // NULL constant
+            (cast(PtrType)type !is null) // NULL constant
         );
 
         super(type, loc);
@@ -83,7 +82,7 @@ class FloatExpr : Expr
     double value;
 
     /// Constructor.
-    this(const Type type, double val, SrcLoc loc)
+    this(Type type, double val, SrcLoc loc)
     {
         assert(type == floatType || type == doubleType);
 
@@ -102,47 +101,32 @@ class StringExpr : Expr
     this(string val, SrcLoc loc)
     {
         // String literal is const char*
-        super(charType.getPtrType().getQualType(QUAL_CONST), loc);
+        super(new PtrType(Type.PTR, charType, -1, true), loc);
         this.value = val;
     }
 }
 
-/// Represents an identifier. E.g. foo, bar
+/// Represents a variable reference or a function designator.
 class IdentExpr : Expr
 {
-    /// The resolved Decl.
-    Decl identDecl;
+    /// Which declaration this identifier references.
+    Decl var;
 
-    /// Identifier string.
-    string identStr;
-
-    /// Constructor
-    this(Decl identDecl, string idstr, SrcLoc loc)
+    this(Decl var, SrcLoc loc)
     {
-        assert(idstr );
-        assert(identDecl );
+        assert(var);
+        super(var.type, loc);
 
-        super(identDecl.type, loc);
-        this.identStr = idstr;
-        this.identDecl = identDecl;
+        this.var = var;
     }
 
     /// Is it a function designator?
     bool isFuncDesg() const
     {
-        return (cast(FuncDecl)identDecl !is null);
-    }
-
-    /// Is it a variable reference?
-    bool isVaref() const
-    {
-        return (cast(VarDecl)identDecl !is null);
+        return type.isFunction();
     }
 }
 
-/// Wrapper for unary expressions.
-/// NOTE: The parser ensure the semantic correctness
-/// before constructing the AST node instances.
 class UnaryExpr : Expr
 {
     alias Kind = int;
@@ -178,13 +162,12 @@ class UnaryExpr : Expr
     /// Operand.
     Expr opnd;
 
-    /// Constructor.
-    this(Kind kind, const Type exprTy, Expr opnd, SrcLoc loc)
+    this(Kind kind, Type type, Expr opnd, SrcLoc loc)
     {
-        assert(exprTy );
-        assert(opnd );
+        assert(type);
+        assert(opnd);
         
-        super(exprTy, loc);
+        super(type, loc);
         this.opnd = opnd;
         this.kind = kind;
     }
@@ -208,7 +191,6 @@ class UnaryExpr : Expr
         }
     }
 
-    /// TODO: remove this.
     override string toString()
     {
         final switch (kind)
@@ -239,14 +221,14 @@ class MemberExpr : Expr
     string name;
 
     /// Constructor.
-    this(const Type resType, Expr struc, string name, SrcLoc loc)
+    this(Type type, Expr struc, string name, SrcLoc loc)
     {
-        assert(resType );
-        assert(struc );
+        assert(type);
+        assert(struc);
         assert(name);
-        assert(cast(RecType)(struc.type) );
+        assert(cast(StructType)struc.type);
 
-        super(resType, loc);
+        super(type, loc);
         this.struc = struc;
         this.name = name;
     }
@@ -255,22 +237,34 @@ class MemberExpr : Expr
 /// Represents a function call. E.g., foo();
 class CallExpr : Expr
 {
-    /// Expr that represents the callee.
-    Expr callee;
+    /// Expression that represents a pointer to function.
+    Expr fptr;
+
+    /// Function name.
+    string fname;
 
     /// Args passed to this call.
     Expr[] args;
 
-    /// Constructor.
-    /// [retType] - function's return type.
-    /// [callee] - Func name.
-    this(const Type retType, Expr callee, Expr[] args, SrcLoc loc)
+    /// Call a function pointer.
+    this(Expr fptr, Expr[] args, SrcLoc loc)
     {
-        assert(retType );
-        assert(callee );
+        assert(fptr && fptr.type.isPointer() && fptr.type.base().isFunction());
 
-        super(retType, loc);
-        this.callee = callee;
+        super(fptr.type.base().ret(), loc);
+        this.fptr = fptr;
+        this.fname = null;
+        this.args = args;
+    }
+
+    /// Call a function by a designator.
+    this(Type type, string name, Expr[] args, SrcLoc loc)
+    {
+        assert(type && !type.isFunction());
+
+        super(type, loc);
+        this.fptr = null;
+        this.fname = name;
         this.args = args;
     }
 }
@@ -283,20 +277,16 @@ class BinExpr : Expr
     /// we need not use an enum.
     string op;
 
-    /// Left-hand side.
     Expr lhs;
-
-    /// Right-hand side.
     Expr rhs;
 
-    /// Constructor.
-    this(const Type resType, string op, Expr lhs, Expr rhs, SrcLoc loc)
+    this(Type type, string op, Expr lhs, Expr rhs, SrcLoc loc)
     {
-        assert(resType );
-        assert(op );
-        assert(lhs  && rhs );
+        assert(type);
+        assert(op);
+        assert(lhs && rhs);
 
-        super(resType, loc);
+        super(type, loc);
         this.op = op;
         this.lhs = lhs;
         this.rhs = rhs;
@@ -316,7 +306,7 @@ class CondExpr : Expr
     Expr sec;
 
     /// Constructor.
-    this(const Type type, Expr cond, Expr first, Expr sec, SrcLoc loc)
+    this(Type type, Expr cond, Expr first, Expr sec, SrcLoc loc)
     {
         assert(type && cond && first && sec);
         super(type, loc);
@@ -330,32 +320,12 @@ class CondExpr : Expr
 /// Represents an assignment.
 class AssignExpr : Expr
 {
-    /// Operator: =, +=, -=, etc.
-    string op;
-
-    /// An lvalue.
     Expr lhs;
-
-    /// Expression on the rhs.
     Expr rhs;
 
-    /// Constructor.
-    this(const Type resType, string op, Expr lhs, Expr rhs, SrcLoc loc)
+    this(Expr lhs, Expr rhs, SrcLoc loc)
     {
-        assert(resType);
-        assert(lhs  && rhs );
-        assert(lhs.type == resType);
-        assert(
-            op == "="  ||
-            op == "+=" ||
-            op == "-=" ||
-            op == "*=" ||
-            op == "/=" ||
-            op == "%="
-        );
-
-        super(resType, loc);
-        this.op = op;
+        super(lhs.type, loc);
         this.lhs = lhs;
         this.rhs = rhs;
     }
@@ -381,7 +351,6 @@ class InitExpr : Expr
     /// Next initExpr.
     InitExpr next;
 
-    /// Constructor.
     this(Expr value, size_t offset, SrcLoc loc)
     {
         assert(value);
@@ -400,10 +369,10 @@ class CompLitExpr : Expr
     InitExpr inits;
 
     /// Constructor.
-    this(const Type litType, InitExpr inits, SrcLoc loc)
+    this(Type type, InitExpr inits, SrcLoc loc)
     {
-        assert(litType);
-        super(litType, loc);
+        assert(type);
+        super(type, loc);
 
         this.inits = inits;
     }
@@ -417,7 +386,7 @@ class CommaExpr : Expr
     Expr[] lists;
 
     /// Constructor.
-    this(const Type type, Expr[] lists, SrcLoc loc)
+    this(Type type, Expr[] lists, SrcLoc loc)
     {
         assert(type);
         super(type, loc);
@@ -578,18 +547,17 @@ class RetStmt : Stmt
 class CompStmt : Stmt
 {
     /// A collection of stmts.
-    Stmt[] body;
+    Stmt[] body_;
 
     /// Constructor.
     this(Stmt[] stmts, SrcLoc loc)
     {
         super(loc);
-        this.body = stmts;
+        this.body_ = stmts;
     }
 }
 
 // TODO:
-// class SwitchStmt : Stmt;
 // class GotoStmt : Stmt;
 
 /*
@@ -608,12 +576,20 @@ class Decl : Node
     /// Constructor.
     this(Type type, string name, SrcLoc loc)
     {
-        assert(type );
-        assert(name );
+        assert(type);
+        assert(name);
 
         super(loc);
         this.type = type;
         this.name = name;
+    }
+}
+
+class TypedefDecl : Decl
+{
+    this(Type type, string name, SrcLoc loc)
+    {
+        super(type, name, loc);
     }
 }
 
@@ -622,21 +598,14 @@ class VarDecl : Decl
 {
     /// Initial values.
     /// Use array type because this VarDecl might declare an array.
-    InitExpr[] initVals;
+    InitExpr initVals;
 
-    /// Constructor.
-    this(Type type, string name, InitExpr[] initVals, SrcLoc loc)
+    this(Type type, string name, InitExpr initVals, SrcLoc loc)
     {
+        assert(!type.isFunction(), "no variable can be of function type");
+
         super(type, name, loc);
         this.initVals = initVals;
-    }
-
-    /// Whether the variable being declared is of type T.
-    bool isofType(T)() const
-    {
-        static assert(is (T : Type));
-
-        return (cast(T)(type) !is null);
     }
 }
 
@@ -644,18 +613,20 @@ class VarDecl : Decl
 class FuncDecl : Decl
 {
     /// Statements within function body.
-    Stmt[] body;
+    Stmt[] body_;
 
     /// Constructor.
-    this(Type type, string name, Stmt[] body, SrcLoc loc)
+    this(Type type, string name, Stmt[] body_, SrcLoc loc)
     {
+        assert(type.isFunction(), "function designator must be of function type");
+
         super(type, name, loc);
-        this.body = body;
+        this.body_ = body_;
     }
 
     /// Whether this decl contains a body.
     bool isDefinition() const
     {
-        return (body !is null);
+        return (body_ !is null);
     }
 }
